@@ -17,27 +17,26 @@ st.set_page_config(
 # Función para cargar RData con Caching
 # --------------------------------------
 @st.cache_data
-def load_rdata(file_path: str) -> pd.DataFrame:
+def load_csv(file_path: str) -> pd.DataFrame:
     """
-    Lee un archivo RData usando pyreadr y devuelve el primer DataFrame contenido.
+    Lee un archivo CSV usando pandas y devuelve el DataFrame.
     Usa el decorador st.cache_data para evitar recargar los datos en cada interacción.
     """
     try:
         # st.spinner() muestra un mensaje de carga mientras se ejecuta la función
         with st.spinner(f'Cargando {file_path}...'):
-            result = pyreadr.read_r(file_path)
+            df = pd.read_csv(file_path)
         
-        # Obtener el nombre de la clave y devolver el DataFrame
-        df_name = list(result.keys())[0]
-        st.info(f"Archivo {file_path} cargado con el nombre de objeto '{df_name}'.")
-        return result[df_name]
+        st.info(f"Archivo {file_path} cargado correctamente con {len(df)} filas y {len(df.columns)} columnas.")
+        return df
     
     except FileNotFoundError:
         st.error(f"Error: No se encontró el archivo '{file_path}'. Asegúrate de que esté en la misma carpeta que 'app.py'.")
-        return pd.DataFrame() # Devuelve un DataFrame vacío en caso de error
+        return pd.DataFrame()  # Devuelve un DataFrame vacío en caso de error
     except Exception as e:
         st.error(f"Error al leer '{file_path}': {e}")
         return pd.DataFrame()
+
 
 # --------------------------------------
 # Cargar todos los datasets
@@ -47,11 +46,12 @@ st.markdown("Herramienta interactiva para visualizar las series temporales de va
 
 # Diccionario de archivos y DataFrames
 datasets: Dict[str, pd.DataFrame] = {
-    "Fault Free Training": load_rdata("TEP_FaultFree_Training.RData"),
-    "Fault Free Testing": load_rdata("TEP_FaultFree_Testing.RData"),
-    "Faulty Training": load_rdata("TEP_Faulty_Training.RData"),
-    "Faulty Testing": load_rdata("TEP_Faulty_Testing.RData")
+    "Fault Free Training": load_csv("DatasetReducido/FaultFree_Training_reduced.csv"),
+    "Fault Free Testing": load_csv("DatasetReducido/FaultFree_Testing_reduced.csv"),
+    "Faulty Training": load_csv("DatasetReducido/Faulty_Training_reduced.csv"),
+    "Faulty Testing": load_csv("DatasetReducido/Faulty_Testing_reduced.csv")
 }
+
 
 # --------------------------------------
 # PRE-PROCESAMIENTO: Definir y etiquetar solo los conjuntos con Fallo
