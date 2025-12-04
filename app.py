@@ -1,201 +1,241 @@
 import streamlit as st
-import pyreadr
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from typing import Dict, Any, List
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-# Configuración de página de Streamlit
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="TEP Fault Detection Analysis",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="TEP - Detección de Fallos",
+    page_icon="🏭",
+    layout="wide"
 )
 
-# --------------------------------------
-# Función para cargar RData con Caching
-# --------------------------------------
+# --- 1. FUNCIÓN DE CARGA DE DATOS ---
 @st.cache_data
-def load_csv(file_path: str) -> pd.DataFrame:
-    """
-    Lee un archivo CSV usando pandas y devuelve el DataFrame.
-    Usa el decorador st.cache_data para evitar recargar los datos en cada interacción.
-    """
+def load_data():
+    data_dir = "DatasetReducido" 
     try:
-        # st.spinner() muestra un mensaje de carga mientras se ejecuta la función
-        with st.spinner(f'Cargando {file_path}...'):
-            df = pd.read_csv(file_path)
+        df_normal = pd.read_csv(f"{data_dir}/FaultFree_Training_reduced.csv")
+        df_faulty = pd.read_csv(f"{data_dir}/Faulty_Training_reduced.csv")
         
-        st.info(f"Archivo {file_path} cargado correctamente con {len(df)} filas y {len(df.columns)} columnas.")
-        return df
-    
+        # Etiquetas y limpieza básica
+        df_normal['fault_present'] = 0
+        df_normal['faultNumber'] = 0
+        df_faulty['fault_present'] = 1
+        
+        # Concatenar
+        df_combined = pd.concat([df_normal, df_faulty], ignore_index=True)
+        return df_combined
     except FileNotFoundError:
-        st.error(f"Error: No se encontró el archivo '{file_path}'. Asegúrate de que esté en la misma carpeta que 'app.py'.")
-        return pd.DataFrame()  # Devuelve un DataFrame vacío en caso de error
-    except Exception as e:
-        st.error(f"Error al leer '{file_path}': {e}")
-        return pd.DataFrame()
+        return None
 
+# Definición de variables
+PROCESS_VARS = [f"xmeas_{i}" for i in range(1, 42)]
+ACTUATOR_VARS = [f"xmv_{i}" for i in range(1, 12)]
+ALL_SENSORS = PROCESS_VARS + ACTUATOR_VARS
 
-# --------------------------------------
-# Cargar todos los datasets
-# --------------------------------------
-st.title('🏭 Tennessee Eastman Process (TEP) - Análisis de Fallos')
-st.markdown("Herramienta interactiva para visualizar las series temporales de variables del proceso TEP, enfocada solo en datos con fallos.")
+# Carga inicial
+df = load_data()
 
-# Diccionario de archivos y DataFrames
-datasets: Dict[str, pd.DataFrame] = {
-    "Fault Free Training": load_csv("DatasetReducido/FaultFree_Training_reduced.csv"),
-    "Fault Free Testing": load_csv("DatasetReducido/FaultFree_Testing_reduced.csv"),
-    "Faulty Training": load_csv("DatasetReducido/Faulty_Training_reduced.csv"),
-    "Faulty Testing": load_csv("DatasetReducido/Faulty_Testing_reduced.csv")
-}
+# BARRA LATERAL (NAVEGACIÓN)
+st.sidebar.image("img/menu.png", width=50)
+page = st.sidebar.radio("Ir a:", ["Análisis Exploratorio (EDA)", "Modelado y Entrenamiento"])
 
+if df is None:
+    st.error("No se encontraron los archivos CSV.")
+    st.stop()
 
-# --------------------------------------
-# PRE-PROCESAMIENTO: Definir y etiquetar solo los conjuntos con Fallo
-# --------------------------------------
+# ==========================================
+# PÁGINA 1: ANÁLISIS EXPLORATORIO (EDA)
+# ==========================================
+if page == "Análisis Exploratorio (EDA)":
+    st.image("img/data.png", width=100)
+    st.title("Análisis Exploratorio de Datos")
+    st.markdown("Exploración interactiva de los sensores y la distribución de fallos.")
 
-# 1. Conjunto de Entrenamiento (Solo datos con fallo)
-df_train_raw = datasets["Faulty Training"].copy()
-# CREACIÓN DE LA COLUMNA CRÍTICA: fault_present indica la presencia del fallo (0:Normal, 1:Fallo)
-df_train_raw['fault_present'] = np.where(df_train_raw['faultNumber'] > 0, 1, 0) 
+    # Definición de Colores
+    MAIN_COLOR = "#2877FF"  
+    SECONDARY_COLOR = "#25ED21"
+    # Pestañas internas para organizar el EDA
+    tab1, tab2, tab3, tab4 = st.tabs(["Resumen y Target", "Distribuciones Univariables", "Series Temporales", "PCA & Correlaciones"])
 
-# 2. Conjunto de Prueba (Solo datos con fallo)
-df_test_raw = datasets["Faulty Testing"].copy()
-df_test_raw['fault_present'] = np.where(df_test_raw['faultNumber'] > 0, 1, 0) 
-
-# --------------------------------------
-# Interfaz de Usuario en la Barra Lateral
-# --------------------------------------
-st.sidebar.header('Parámetros de Visualización')
-
-# Selector para elegir el conjunto de datos (Entrenamiento o Prueba)
-dataset_choice = st.sidebar.radio(
-    "Selecciona el Conjunto de Datos:",
-    ('Entrenamiento (Training)', 'Prueba (Testing)')
-)
-
-# Asignar el DataFrame de análisis basado en la selección
-if dataset_choice == 'Entrenamiento (Training)':
-    df_analisis = df_train_raw.copy()
-else:
-    df_analisis = df_test_raw.copy()
-
-# Obtener todas las simulaciones que contienen un fallo (fault_present == 1)
-# Usamos el DataFrame procesado que contiene 'fault_present'
-if 'fault_present' in df_analisis.columns:
-    faulty_runs = df_analisis[df_analisis['fault_present'] == 1]['simulationRun'].unique()
-else:
-    # Esto ocurre si el archivo 'Faulty Training' no se cargó correctamente
-    faulty_runs = np.array([])
-    
-# Selector de la Simulación (Solo se muestran las que tienen fallo)
-selected_run = st.sidebar.selectbox(
-    '1. Simulación con Fallo (Run):',
-    options=sorted(faulty_runs.tolist()) if faulty_runs.size > 0 else ['No Runs Disponibles'],
-    help='Elige una simulación de la lista que contenga un fallo inyectado.'
-)
-
-# Obtener los nombres de las columnas 'xmeas_' y 'xmv_'
-data_cols_xmeas = [col for col in df_analisis.columns if col.startswith('xmeas')]
-data_cols_xmv = [col for col in df_analisis.columns if col.startswith('xmv')]
-all_data_cols = data_cols_xmeas + data_cols_xmv
-
-# Selector de la Variable
-key_variable = st.sidebar.selectbox(
-    '2. Variable de Proceso:',
-    options=all_data_cols,
-    index=all_data_cols.index('xmeas_1') if 'xmeas_1' in all_data_cols else 0
-)
-
-# --------------------------------------
-# Gráfico de Series Temporales (Main Panel)
-# --------------------------------------
-
-st.header(f'📈 Serie Temporal de la Variable {key_variable} - {dataset_choice}')
-
-if df_analisis.empty:
-    st.error("El DataFrame de análisis está vacío. Revisa la carga de archivos.")
-elif len(faulty_runs) == 0:
-    st.warning("No se encontraron simulaciones con fallos (fault_present = 1) en el conjunto seleccionado. Asegúrate de que los archivos 'Faulty' se cargaron correctamente.")
-else:
-    # 1. Filtrar el DataFrame basado en la selección del usuario
-    df_sim_fault = df_analisis[df_analisis['simulationRun'] == selected_run].copy()
-    
-    # 2. Identificar el punto de inicio del fallo (muestra más de 0) y el número de fallo
-    fault_start_sample = df_sim_fault[df_sim_fault['fault_present'] == 1]['sample'].min()
-    fault_number = df_sim_fault['faultNumber'].max() # Obtiene el número de fallo (1-20)
-
-    # 3. Crear el gráfico interactivo con Plotly Express
-    fig = px.line(
-        df_sim_fault,
-        x='sample',
-        y=key_variable,
-        # Usamos 'faultNumber' (convertido a string) para diferenciar los colores
-        color=df_sim_fault['faultNumber'].astype(str), 
-        title=f'Simulación {selected_run}: Fallo {int(fault_number)}',
-        template="plotly_white"
-    )
-
-    # 4. Ajustes y Personalización de líneas y colores
-    fig.update_traces(line=dict(width=2.5)) 
-
-    # Renombrar las leyendas para mayor claridad
-    newnames = {
-        '0': 'Régimen Normal (No Fallo)',
-        str(int(fault_number)): f'Fallo Activo ID {int(fault_number)}'
-    }
-    
-    fig.for_each_trace(lambda t: t.update(
-        name = newnames.get(t.name, t.name),
-        legendgroup = newnames.get(t.name, t.name),
-        hovertemplate = t.hovertemplate.replace(t.name, newnames.get(t.name, t.name))
-    ))
-
-    # 5. Añadir Sombreado para el Periodo de Fallo (variación)
-    if pd.notna(fault_start_sample):
-        # Añadir un rectángulo sombreado para el periodo de fallo
-        fig.add_shape(
-            type="rect",
-            xref="x",
-            yref="y domain",
-            x0=fault_start_sample,
-            x1=df_sim_fault['sample'].max(), # hasta el final de la simulación
-            y0=0, # Parte inferior del dominio Y
-            y1=1, # Parte superior del dominio Y
-            fillcolor="Red",
-            opacity=0.15, # Opacidad para el sombreado
-            layer="below",
-            line_width=0,
-        )
+    with tab1:
+        # FILA 1: TABLA 
+        st.subheader("Estadísticas Descriptivas")
+        st.markdown("Resumen estadístico de las primeras variables.")
+        st.dataframe(df[ALL_SENSORS].describe().T.head(10), use_container_width=True)
         
-        # Añadir la línea vertical de inicio del fallo (más visible)
-        fig.add_vline(
-            x=fault_start_sample,
-            line_dash="dot",
-            line_color="darkred",
-            line_width=2,
-            annotation_text=" Inicio del Fallo ",
-            annotation_position="top right"
-        )
+        st.divider() 
+        
+        # FILA 2: GRÁFICOS 
+        col_graph1, spacer, col_graph2 = st.columns([2, 0.2, 1.5]) 
+        
+        with col_graph1:
+            st.subheader("Distribución de Fallos")
+            
+            fig_count, ax_count = plt.subplots(figsize=(8, 5)) 
+            
+            unique_faults = sorted(df['faultNumber'].unique())
+            custom_palette = [SECONDARY_COLOR if x == 0 else MAIN_COLOR for x in unique_faults]
+            
+            sns.countplot(data=df, x='faultNumber', palette=custom_palette, ax=ax_count)
+            
+            ax_count.set_title('Muestras por Tipo de Fallo (0 = Normal)', fontsize=10)
+            ax_count.set_ylabel('Cantidad')
+            ax_count.set_xlabel('Tipo de Fallo')
+            ax_count.tick_params(axis='x', rotation=0, labelsize=8)
+            
+            sns.despine(ax=ax_count)
+            st.pyplot(fig_count)
 
-    # 6. Configuración final
-    fig.update_layout(
-        showlegend=True,
-        legend_title_text='Estado del Proceso',
-        xaxis_title='Muestra (Sample)',
-        yaxis_title=key_variable,
-        hovermode="x unified", # Muestra la información de hover de todas las líneas al mismo tiempo
-        margin=dict(t=50, b=50, l=50, r=50)
-    )
+        with col_graph2:
+            st.subheader("Balance Global")
+            
+            fig_pie, ax_pie = plt.subplots(figsize=(5, 5))
+            
+            counts = df['fault_present'].value_counts()
+            
+            if counts.index[0] == 1:
+                labels = ['Fallo (1)', 'Normal (0)']
+                colors = [MAIN_COLOR, SECONDARY_COLOR] 
+            else:
+                labels = ['Normal (0)', 'Fallo (1)']
+                colors = [SECONDARY_COLOR, MAIN_COLOR]
+            
+            ax_pie.pie(counts, labels=labels, autopct='%1.1f%%', colors=colors, 
+                       startangle=90, textprops={'fontsize': 10})
+            
+            ax_pie.set_title('Normal vs. Fallo', fontsize=10)
+            st.pyplot(fig_pie)
 
-    # 7. Mostrar el gráfico en Streamlit
-    st.plotly_chart(fig, use_container_width=True)
+    with tab2:
+        st.subheader("Comportamiento de Sensores y Actuadores")
+        st.markdown("Comparativa de distribuciones. Selecciona múltiples variables para verlas en cuadrícula.")
 
-    # --------------------------------------
-    # Vista de Datos de la Simulación
-    # --------------------------------------
-    st.subheader(f"Datos Crudos para Simulación {selected_run}")
-    st.dataframe(df_sim_fault)
+        # 2. Creamos sub-pestañas 
+        tab_act, tab_proc = st.tabs(["Variables Manipuladas (XMV)", "Variables de Proceso (XMEAS)"])
+
+        # Función Helper
+        def plot_grid(variable_list, default_selection):
+            selected_vars = st.multiselect(
+                "Selecciona variables para visualizar:", 
+                options=variable_list, 
+                default=default_selection
+            )
+            
+            if not selected_vars:
+                st.warning("Selecciona al menos una variable.")
+                return
+
+            cols = st.columns(2)
+            
+            for i, var in enumerate(selected_vars):
+                col = cols[i % 2]
+                with col:
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    
+                    sns.kdeplot(
+                        data=df, x=var, hue='fault_present', fill=True, common_norm=False, 
+                        palette={0: SECONDARY_COLOR, 1: MAIN_COLOR},
+                        alpha=0.3, linewidth=2, ax=ax
+                    )
+                    
+                    ax.set_title(f"{var}", fontsize=10, fontweight='bold')
+                    ax.set_xlabel('')
+                    ax.set_ylabel('Densidad', fontsize=8)
+                    
+                    ax.legend(labels=['Fallo', 'Normal'], fontsize=8)
+                    
+                    sns.despine(ax=ax)
+                    st.pyplot(fig)
+
+        # PESTAÑA 1: ACTUADORES (XMV) 
+        with tab_act:
+            st.caption("Estas variables son **acciones de control** (Apertura de válvulas, Velocidades).")
+            plot_grid(ACTUATOR_VARS, default_selection=ACTUATOR_VARS)
+
+        # PESTAÑA 2: PROCESO (XMEAS) 
+        with tab_proc:
+            st.caption("Estas variables son **lecturas de sensores** (Temperaturas, Presiones, Niveles).")
+            plot_grid(PROCESS_VARS, default_selection=['xmeas_1', 'xmeas_9', 'xmeas_21', 'xmeas_10'])
+
+    with tab3:
+        st.subheader("Dinámica Temporal")
+        col_run1, col_run2 = st.columns(2)
+        
+        # Selectores de Runs
+        runs_normal = df[df['fault_present'] == 0]['simulationRun'].unique()
+        runs_faulty = df[df['fault_present'] == 1]['simulationRun'].unique()
+        
+        run_n = col_run1.selectbox("Run Normal:", runs_normal)
+        run_f = col_run2.selectbox("Run con Fallo:", runs_faulty)
+        var_temp = st.selectbox("Variable a visualizar en el tiempo:", ALL_SENSORS, index=8) 
+
+        # Filtrado
+        sim_normal = df[(df['simulationRun'] == run_n) & (df['fault_present'] == 0)]
+        sim_faulty = df[(df['simulationRun'] == run_f) & (df['fault_present'] == 1)]
+
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.plot(sim_normal['sample'], sim_normal[var_temp], label=f'Normal (Run {run_n})', color=SECONDARY_COLOR)
+        ax.plot(sim_faulty['sample'], sim_faulty[var_temp], label=f'Fallo (Run {run_f})', color=MAIN_COLOR, alpha=0.8)
+        ax.legend()
+        ax.set_xlabel("Tiempo (Muestra)")
+        ax.set_ylabel(var_temp)
+        ax.grid(True, linestyle='--', alpha=0.5)
+        st.pyplot(fig)
+
+    with tab4:
+        st.subheader("Reducción de Dimensionalidad (PCA)")
+        st.markdown("Proyección de las 52 variables en 2 componentes principales.")
+
+        if st.button("Calcular y Visualizar PCA (Puede tardar unos segundos)"):
+            with st.spinner("Calculando PCA..."):
+                # 1. Muestreo y Preparación
+                df_sample = df.sample(min(10000, len(df)), random_state=42)
+                X = df_sample[ALL_SENSORS]
+                y = df_sample['fault_present']
+                
+                scaler = StandardScaler()
+                X_scaled = scaler.fit_transform(X)
+                
+                # 2. Cálculo PCA
+                pca = PCA(n_components=2)
+                X_pca = pca.fit_transform(X_scaled)
+                
+                # 3. Visualización con SEABORN (Para usar tu paleta)
+                fig, ax = plt.subplots(figsize=(8, 6))
+                
+                sns.scatterplot(
+                    x=X_pca[:, 0], 
+                    y=X_pca[:, 1], 
+                    hue=y, 
+                    palette={0: SECONDARY_COLOR, 1: MAIN_COLOR}, 
+                    alpha=0.6, 
+                    s=20, 
+                    edgecolor=None, 
+                    ax=ax
+                )
+                
+                ax.set_xlabel('Componente Principal 1')
+                ax.set_ylabel('Componente Principal 2')
+                ax.set_title(f'Varianza Explicada: {sum(pca.explained_variance_ratio_)*100:.2f}%')
+                
+                # Ajustamos la leyenda manualmente para que sea legible
+                handles, _ = ax.get_legend_handles_labels()
+                ax.legend(handles, ['Normal', 'Fallo'], title="Estado")
+                
+                st.pyplot(fig)
+
+# ==========================================
+# PÁGINA 2: MODELADO Y ENTRENAMIENTO
+# ==========================================
+elif page == "Modelado y Entrenamiento":
+    st.title("Laboratorio de Modelos ML")
+    st.markdown("Entrena y evalúa modelos de clasificación en tiempo real.")
