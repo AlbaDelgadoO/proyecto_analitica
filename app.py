@@ -233,8 +233,100 @@ if page == "Análisis Exploratorio (EDA)":
                 
                 st.pyplot(fig)
 
+# # ==========================================
+# # PÁGINA 2: MODELADO Y ENTRENAMIENTO 
+# # ==========================================
+# elif page == "Modelado y Entrenamiento":
+#     st.title("Laboratorio de Modelos ML")
+#     st.markdown("Entrena y evalúa modelos de clasificación en tiempo real.")
+
+#     # --- Selección de Modelo ---
+#     modelo_sel = st.selectbox(
+#         "Selecciona el modelo que deseas entrenar:",
+#         ["Clasificación Binaria (Fallo vs Normal)", 
+#          "Predicción de Fallos Futuros (Horizonte)", 
+#          "Clasificación Multiclase de Tipo de Fallo"]
+#     )
+
+#     # --- Selección de Variables ---
+#     variables_sel = st.multiselect(
+#         "Selecciona variables predictoras:", 
+#         options=ALL_SENSORS,
+#         default=ALL_SENSORS
+#     )
+
+#     if not variables_sel:
+#         st.warning("Debes seleccionar al menos una variable.")
+#         st.stop()
+
+#     # --- Botón para Entrenar ---
+#     if st.button("Entrenar Modelo"):
+#         st.info("Entrenando modelo... Esto puede tardar unos segundos.")
+        
+#         # Preparación de datos
+#         if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
+#             target = "fault_present"
+#             X = df[variables_sel]
+#             y = df[target]
+#             scaler = StandardScaler()
+#             X_scaled = scaler.fit_transform(X)
+#             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+#             clf = RandomForestClassifier(n_estimators=100, random_state=42)
+#             clf.fit(X_train, y_train)
+
+#         elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
+#             target = "fault_present"  # Ajusta si tienes otra variable para el horizonte
+#             X = df[variables_sel]
+#             y = df[target]
+#             scaler = StandardScaler()
+#             X_scaled = scaler.fit_transform(X)
+#             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+#             clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')
+#             clf.fit(X_train, y_train)
+
+#         elif modelo_sel == "Clasificación Multiclase de Tipo de Fallo":
+#             target = "faultNumber"
+#             X = df[variables_sel]
+#             y = df[target]
+#             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+#             clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
+#             clf.fit(X_train, y_train)
+
+#         # --- Evaluación ---
+#         st.subheader("Evaluación del Modelo")
+#         y_pred = clf.predict(X_test)
+
+#         st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.2f}")
+#         st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted'):.2f}")
+#         st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted'):.2f}")
+#         st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted'):.2f}")
+
+#         st.subheader("Matriz de Confusión")
+#         fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
+#         sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+#         ax_cm.set_xlabel("Predicción")
+#         ax_cm.set_ylabel("Valor Real")
+#         st.pyplot(fig_cm)
+
+#         # --- Predicción en Tiempo Real ---
+#         st.subheader("Predicción en Tiempo Real")
+#         uploaded_file = st.file_uploader("Sube archivo CSV con nuevas simulaciones", type=["csv"])
+#         if uploaded_file:
+#             df_new = pd.read_csv(uploaded_file)
+#             if set(variables_sel).issubset(df_new.columns):
+#                 X_new = df_new[variables_sel]
+#                 # Escalado si aplica
+#                 if modelo_sel != "Clasificación Multiclase de Tipo de Fallo":
+#                     X_new = scaler.transform(X_new)
+#                 preds = clf.predict(X_new)
+#                 df_new["Predicción"] = preds
+#                 st.dataframe(df_new.head(20), use_container_width=True)
+#             else:
+#                 st.error("El CSV no contiene todas las variables seleccionadas.")
+
+
 # ==========================================
-# PÁGINA 2: MODELADO Y ENTRENAMIENTO
+# PÁGINA 2: MODELADO Y ENTRENAMIENTO / PREDICCIÓN BENTO
 # ==========================================
 elif page == "Modelado y Entrenamiento":
     st.title("Laboratorio de Modelos ML")
@@ -260,10 +352,10 @@ elif page == "Modelado y Entrenamiento":
         st.stop()
 
     # --- Botón para Entrenar ---
-    if st.button("Entrenar Modelo"):
+    if st.button("Entrenar Modelo Local"):
         st.info("Entrenando modelo... Esto puede tardar unos segundos.")
         
-        # Preparación de datos
+        # Preparación de datos y entrenamiento
         if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
             target = "fault_present"
             X = df[variables_sel]
@@ -292,8 +384,8 @@ elif page == "Modelado y Entrenamiento":
             clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
             clf.fit(X_train, y_train)
 
-        # --- Evaluación ---
-        st.subheader("Evaluación del Modelo")
+        # --- Evaluación del Modelo Local ---
+        st.subheader("Evaluación del Modelo Local")
         y_pred = clf.predict(X_test)
 
         st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.2f}")
@@ -308,14 +400,13 @@ elif page == "Modelado y Entrenamiento":
         ax_cm.set_ylabel("Valor Real")
         st.pyplot(fig_cm)
 
-        # --- Predicción en Tiempo Real ---
-        st.subheader("Predicción en Tiempo Real")
+        # --- Predicción en Tiempo Real Local ---
+        st.subheader("Predicción en Tiempo Real (Local)")
         uploaded_file = st.file_uploader("Sube archivo CSV con nuevas simulaciones", type=["csv"])
         if uploaded_file:
             df_new = pd.read_csv(uploaded_file)
             if set(variables_sel).issubset(df_new.columns):
                 X_new = df_new[variables_sel]
-                # Escalado si aplica
                 if modelo_sel != "Clasificación Multiclase de Tipo de Fallo":
                     X_new = scaler.transform(X_new)
                 preds = clf.predict(X_new)
@@ -323,3 +414,29 @@ elif page == "Modelado y Entrenamiento":
                 st.dataframe(df_new.head(20), use_container_width=True)
             else:
                 st.error("El CSV no contiene todas las variables seleccionadas.")
+
+# ==========================================
+# NUEVA PÁGINA: PREDICCIÓN VÍA API BENTO
+# ==========================================
+elif page == "Predicción vía API BentoML":
+    st.title("Predicción en Tiempo Real usando BentoML API")
+    st.markdown("Introduce los valores de las 52 variables y obtén la predicción del modelo servido por BentoML.")
+
+    # Crear sliders para las 52 variables
+    features = [st.slider(f"{var}", 0.0, 10.0, 0.5) for var in ALL_SENSORS]
+
+    if st.button("Predecir con API"):
+        try:
+            response = requests.post(
+                "http://localhost:3000/predict",
+                json={"features": features}
+            )
+            if response.status_code == 200:
+                result = response.json()
+                st.write("Predicción:", result["prediction"])
+                st.write("Probabilidades:", result["probabilities"])
+            else:
+                st.error(f"Error al conectar con API: {response.status_code}")
+        except Exception as e:
+            st.error(f"No se pudo conectar con la API: {e}")
+
