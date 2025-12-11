@@ -1,26 +1,45 @@
 import bentoml
-from bentoml.io import JSON
+from fastapi import FastAPI
 from pydantic import BaseModel
 import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
-# Cargar modelo
-model_ref = bentoml.sklearn.get("tep_random_forest:latest")
-model_runner = model_ref.to_runner()
+# 1. Cargar modelo directamente (sin runners)
+model = bentoml.sklearn.load_model("tep_random_forest:latest")
 
-# Definir servicio BentoML
-svc = bentoml.Service("tep_service", runners=[model_runner])
+# 2. Reconstruir scaler usando el dataset de entrenamiento
+df_train = pd.read_csv("DatasetProcesado/TEP_features_train.csv", sep=",")
+df_train["fallo_bin"] = df_train["fault_present"]
+X_train = df_train.drop(["fault_present", "fallo_bin"], axis=1)
 
-# Definir esquema de entrada
+scaler = StandardScaler()
+scaler.fit(X_train)
+
+# 3. Crear servicio BentoML (sin runners)
+svc = bentoml.Service("tep_service")
+
+# 4. Crear app FastAPI
+app = FastAPI()
+
+# 5. Esquema de entrada
 class InputData(BaseModel):
-    features: list  # lista de floats con las características de la simulación
+    features: list
 
-@svc.api(input=JSON(), output=JSON())
-async def predict(input_data: InputData):
-    # Transformar datos con el scaler guardado
-    scaler = model_runner.custom_objects["scaler"]
-    X = scaler.transform([input_data.features])
-    
-    pred = model_runner.predict.run(X)
-    proba = model_runner.predict_proba.run(X).tolist()[0]
-    
-    return {"prediction": int(pred[0]), "probabilities": proba}
+# 6. Endpoint FastAPI (modelo directo)
+@app.post("/predict")
+def predict(input_data: InputData):
+
+    X = np.array([input_data.features], dtype=float)
+    X_scaled = scaler.transform(X)
+
+    pred = model.predict(X_scaled)
+    proba = model.predict_proba(X_scaled)
+
+    return {
+        "prediction": int(pred[0]),
+        "probabilities": proba[0].tolist()
+    }
+
+# 7. Montar FastAPI dentro del servicio BentoML
+svc.mount_asgi_app(app, "/")
