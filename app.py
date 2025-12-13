@@ -10,9 +10,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-
-
-
+import os
+import joblib
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -462,100 +461,144 @@ elif page == "Modelado y Entrenamiento":
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
     st.title("Laboratorio de Modelos ML")
-    st.markdown("Entrena y evalúa modelos de clasificación en tiempo real.")
+    st.markdown("Entrena y evalúa modelos de clasificación usando selección por importancia.")
 
-    # --- Cargar dataset ---
-    df = pd.read_csv("DatasetProcesado/TEP_features_train.csv")
-    st.write(f"Dataset cargado: {df.shape[0]} filas x {df.shape[1]} columnas")
-
-    # --- Filtrar columnas features ---
-    non_feature_cols = ['faultNumber', 'simulationRun', 'sample', 'fault_present', 'time_since_fault', 'fault_stage']
-    feature_columns = [col for col in df.columns if col not in non_feature_cols]
-
-    # --- Selección de modelo ---
+    # ===============================
+    # SELECCIÓN DE MODELO
+    # ===============================
     modelo_sel = st.selectbox(
-        "Selecciona el modelo que deseas entrenar:",
+        "Selecciona el modelo:",
         [
-            "Clasificación Binaria (Fallo vs Normal)", 
+            "Clasificación Binaria (Fallo vs Normal)",
             "Predicción de Fallos Futuros (Horizonte)"
         ]
     )
 
     if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
-        ranking_file = "DatasetProcesado/feature_importance_ranking_model1.csv"
-        target_col = 'fault_present'
-        save_model_path = "Modelos/model1_rf.pkl"
-    elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
-        ranking_file = "DatasetProcesado/feature_importance_ranking_model2.csv"
-        target_col = 'fault_stage'
-        save_model_path = "Modelos/model2_rf.pkl"
+        target_col   = "fault_present"
+        ranking_base = "modelos/feature_importance_ranking_model1.csv"
+        model_base   = "Modelos/model1_rf"
+    else:
+        target_col   = "fault_stage"   # EXISTE en tu dataset
+        ranking_base = "modelos/feature_importance_ranking_model2.csv"
+        model_base   = "Modelos/model2_rf"
 
-    # --- Crear carpetas si no existen ---
     os.makedirs("DatasetProcesado", exist_ok=True)
     os.makedirs("Modelos", exist_ok=True)
 
-    # --- Cargar ranking de features, fallback ---
-    if os.path.exists(ranking_file):
-        ranking = pd.read_csv(ranking_file)
+    # ===============================
+    # CARGA DEL RANKING BASE
+    # ===============================
+    df_cols = pd.read_csv(
+        "DatasetProcesado/TEP_features_train.csv",
+        nrows=1
+    ).columns.tolist()
+
+    if os.path.exists(ranking_base):
+        ranking_full = pd.read_csv(ranking_base)
+        all_features = [f for f in ranking_full["feature"] if f in df_cols]
     else:
-        st.warning(f"No se encontró el ranking de features: {ranking_file}. Se usarán todas las features disponibles.")
-        ranking = pd.DataFrame({"feature": feature_columns})
+        st.error(f"No existe el ranking base: {ranking_base}")
+        st.stop()
 
-    existing_features_all = [col for col in ranking['feature'] if col in feature_columns]
-
-    # --- Slider interactivo para seleccionar top-N features ---
+    # ===============================
+    # SLIDER TOP-N FEATURES
+    # ===============================
     n_features = st.slider(
         "Número de features a usar",
         min_value=5,
-        max_value=max(5, len(existing_features_all)),
-        value=min(20, len(existing_features_all)),
+        max_value=len(all_features),
+        value=min(20, len(all_features)),
         step=1,
         key=f"slider_{modelo_sel}"
     )
 
-    top_features = existing_features_all[:n_features]
-    st.write(f"Se usarán {len(top_features)} features para entrenar el modelo.")
+    top_features = all_features[:n_features]
+    st.write(f"Se entrenará con **{n_features} features**")
 
-    # --- Botón de entrenamiento ---
-    if st.button(f"Entrenar {modelo_sel}"):
+    # Nombres finales
+    model_path   = f"{model_base}_top{n_features}.pkl"
+    ranking_path = f"{ranking_base.replace('.csv', f'_top{n_features}.csv')}"
 
-        if target_col not in df.columns:
-            st.error(f"La columna '{target_col}' no se encuentra en el dataset. No se puede entrenar el modelo.")
-        elif len(top_features) == 0:
-            st.error("No hay features válidas para entrenar el modelo.")
-        else:
-            st.info("Entrenando modelo... Esto puede tardar unos segundos.")
+    # ===============================
+    # ENTRENAMIENTO
+    # ===============================
+    if st.button("Entrenar modelo"):
 
-            # --- Preparación de datos ---
-            X = df[top_features]
-            y = df[target_col]
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+        cols_to_load = top_features + [target_col]
 
-            # --- Train/Test split ---
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_scaled, y, test_size=0.2, random_state=42, stratify=y
-            )
+        df = pd.read_csv(
+            "DatasetProcesado/TEP_features_train.csv",
+            usecols=cols_to_load
+        )
 
-            # --- Entrenamiento Random Forest ---
-            clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        X = df[top_features].values
+        y = df[target_col].values
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_scaled,
+            y,
+            test_size=0.2,
+            random_state=42,
+            stratify=y
+        )
+
+        # MODELO OPTIMIZADO PARA STREAMLIT
+        clf = RandomForestClassifier(
+            n_estimators=40,
+            max_depth=12,
+            min_samples_leaf=30,
+            random_state=42,
+            n_jobs=-1
+        )
+
+        with st.spinner("Entrenando modelo..."):
             clf.fit(X_train, y_train)
 
-            # --- Guardar modelo ---
-            joblib.dump(clf, save_model_path)
-            st.success(f"Modelo guardado en {save_model_path}")
+        # ===============================
+        # GUARDADO
+        # ===============================
+        ranking_top = pd.DataFrame({
+            "feature": top_features,
+            "importance": clf.feature_importances_
+        }).sort_values("importance", ascending=False)
 
-            # --- Predicción y métricas ---
-            y_pred = clf.predict(X_test)
-            st.subheader("Evaluación del Modelo")
-            st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.4f}")
-            st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
-            st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
-            st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+        ranking_top.to_csv(ranking_path, index=False)
 
-            # --- Matriz de Confusión ---
-            fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
-            sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-            ax_cm.set_xlabel("Predicción")
-            ax_cm.set_ylabel("Valor Real")
-            st.pyplot(fig_cm)
+        joblib.dump(
+            {
+                "model": clf,
+                "scaler": scaler,
+                "features": top_features
+            },
+            model_path
+        )
+
+        st.success(f"Modelo guardado: {model_path}")
+        st.success(f"Ranking guardado: {ranking_path}")
+
+        # ===============================
+        # EVALUACIÓN
+        # ===============================
+        y_pred = clf.predict(X_test)
+
+        st.subheader("Evaluación del Modelo")
+        st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.4f}")
+        st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+        st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+        st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+
+        fig, ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(
+            confusion_matrix(y_test, y_pred),
+            annot=True,
+            fmt="d",
+            cmap="Blues",
+            ax=ax
+        )
+        ax.set_xlabel("Predicción")
+        ax.set_ylabel("Valor real")
+        st.pyplot(fig)
