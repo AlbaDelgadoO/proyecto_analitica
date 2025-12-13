@@ -1,45 +1,66 @@
 import bentoml
-from fastapi import FastAPI
-from pydantic import BaseModel
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
+from bentoml.io import NumpyNdarray
 
-# 1. Cargar modelo directamente (sin runners)
-model = bentoml.sklearn.load_model("tep_random_forest:latest")
+# =========================
+# Función auxiliar: obtener top-10 features y ejemplo seguro
+# =========================
+def get_sample_input(model_number=1):
+    """
+    Devuelve un ejemplo de entrada para BentoML usando las top-10 features
+    del modelo seleccionado.
+    """
+    ranking_file = f"DatasetProcesado/feature_importance_ranking_model{model_number}_top10.csv"
+    ranking_top10 = pd.read_csv(ranking_file)
+    top_features = ranking_top10['feature'].tolist()
 
-# 2. Reconstruir scaler usando el dataset de entrenamiento
-df_train = pd.read_csv("DatasetProcesado/TEP_features_train.csv", sep=",")
-df_train["fallo_bin"] = df_train["fault_present"]
-X_train = df_train.drop(["fault_present", "fallo_bin"], axis=1)
+    df = pd.read_csv("DatasetProcesado/TEP_features_train.csv")
+    sample_row = df[top_features].iloc[0].fillna(0)  # rellenar NaN con 0
+    sample_input = [float(x) for x in sample_row.tolist()]  # convertir a float
+    return [sample_input], top_features
 
-scaler = StandardScaler()
-scaler.fit(X_train)
+# =========================
+# Cargar modelos y runners
+# =========================
+model1_ref = bentoml.sklearn.get("tep_model1:latest")
+runner1 = model1_ref.to_runner()
 
-# 3. Crear servicio BentoML (sin runners)
-svc = bentoml.Service("tep_service")
+model2_ref = bentoml.sklearn.get("tep_model2:latest")
+runner2 = model2_ref.to_runner()
 
-# 4. Crear app FastAPI
-app = FastAPI()
+svc = bentoml.Service("tep_fault_classifier", runners=[runner1, runner2])
 
-# 5. Esquema de entrada
-class InputData(BaseModel):
-    features: list
+# =========================
+# Valores de ejemplo
+# =========================
+sample_input1, features1 = get_sample_input(1)
+sample_input2, features2 = get_sample_input(2)
 
-# 6. Endpoint FastAPI (modelo directo)
-@app.post("/predict")
-def predict(input_data: InputData):
+# =========================
+# Endpoint POST para Modelo 1
+# =========================
+@svc.api(input=NumpyNdarray.from_sample(sample_input1), output=NumpyNdarray())
+async def predict_model1(input_array: np.ndarray) -> np.ndarray:
+    """
+    Predicción Modelo 1: Clasificación Binaria (Fallo vs Normal)
+    input_array: np.ndarray con forma (n_samples, 10 features)
+    """
+    if input_array.shape[1] != 10:
+        raise ValueError(f"Modelo 1 espera 10 features, pero la entrada tiene {input_array.shape[1]}")
+    prediction = await runner1.predict.async_run(input_array)
+    return np.array(prediction)
 
-    X = np.array([input_data.features], dtype=float)
-    X_scaled = scaler.transform(X)
-
-    pred = model.predict(X_scaled)
-    proba = model.predict_proba(X_scaled)
-
-    return {
-        "prediction": int(pred[0]),
-        "probabilities": proba[0].tolist()
-    }
-
-# 7. Montar FastAPI dentro del servicio BentoML
-svc.mount_asgi_app(app, "/")
+# =========================
+# Endpoint POST para Modelo 2
+# =========================
+@svc.api(input=NumpyNdarray.from_sample(sample_input2), output=NumpyNdarray())
+async def predict_model2(input_array: np.ndarray) -> np.ndarray:
+    """
+    Predicción Modelo 2: Predicción de Fallos Futuros (Horizonte)
+    input_array: np.ndarray con forma (n_samples, 10 features)
+    """
+    if input_array.shape[1] != 10:
+        raise ValueError(f"Modelo 2 espera 10 features, pero la entrada tiene {input_array.shape[1]}")
+    prediction = await runner2.predict.async_run(input_array)
+    return np.array(prediction)
