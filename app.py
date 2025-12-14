@@ -470,7 +470,8 @@ elif page == "Modelado y Entrenamiento":
         "Selecciona el modelo:",
         [
             "Clasificación Binaria (Fallo vs Normal)",
-            "Predicción de Fallos Futuros (Horizonte)"
+            "Predicción de Fallos Futuros (Horizonte)",
+            "Clasificación Multiclase del Tipo de Fallo"
         ]
     )
 
@@ -478,10 +479,16 @@ elif page == "Modelado y Entrenamiento":
         target_col   = "fault_present"
         ranking_base = "modelos/feature_importance_ranking_model1.csv"
         model_base   = "Modelos/model1_rf"
-    else:
-        target_col   = "fault_stage"   # EXISTE en tu dataset
+        
+    elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
+        target_col   = "fault_stage"
         ranking_base = "modelos/feature_importance_ranking_model2.csv"
         model_base   = "Modelos/model2_rf"
+    
+    else:  # MODELO 3
+        target_col   = "faultNumber"
+        ranking_base = "modelos/feature_importance_ranking_model3.csv"
+        model_base   = "Modelos/model3_rf"
 
     os.makedirs("DatasetProcesado", exist_ok=True)
     os.makedirs("Modelos", exist_ok=True)
