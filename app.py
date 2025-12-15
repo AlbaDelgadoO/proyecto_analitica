@@ -12,6 +12,9 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 
 import os
 import joblib
+from tensorflow.keras.models import load_model
+from sklearn.ensemble import IsolationForest
+
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -471,9 +474,18 @@ elif page == "Modelado y Entrenamiento":
         [
             "Clasificación Binaria (Fallo vs Normal)",
             "Predicción de Fallos Futuros (Horizonte)",
-            "Clasificación Multiclase del Tipo de Fallo"
+            "Clasificación Multiclase del Tipo de Fallo",
+            "Detección de anomalías con Isolation Forest",
+            "Detección de anomalías con Autoencoder"
         ]
     )
+
+    unsupervised_models = [
+        "Detección de anomalías con Isolation Forest",
+        "Detección de anomalías con Autoencoder"
+    ]
+
+    is_unsupervised = modelo_sel in unsupervised_models
 
     if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
         target_col   = "fault_present"
@@ -493,119 +505,237 @@ elif page == "Modelado y Entrenamiento":
     os.makedirs("DatasetProcesado", exist_ok=True)
     os.makedirs("Modelos", exist_ok=True)
 
-    # ===============================
-    # CARGA DEL RANKING BASE
-    # ===============================
-    df_cols = pd.read_csv(
-        "DatasetProcesado/TEP_features_train.csv",
-        nrows=1
-    ).columns.tolist()
-
-    if os.path.exists(ranking_base):
-        ranking_full = pd.read_csv(ranking_base)
-        all_features = [f for f in ranking_full["feature"] if f in df_cols]
-    else:
-        st.error(f"No existe el ranking base: {ranking_base}")
-        st.stop()
-
-    # ===============================
-    # SLIDER TOP-N FEATURES
-    # ===============================
-    n_features = st.slider(
-        "Número de features a usar",
-        min_value=5,
-        max_value=len(all_features),
-        value=min(20, len(all_features)),
-        step=1,
-        key=f"slider_{modelo_sel}"
-    )
-
-    top_features = all_features[:n_features]
-    st.write(f"Se entrenará con **{n_features} features**")
-
-    # Nombres finales
-    model_path   = f"{model_base}_top{n_features}.pkl"
-    ranking_path = f"{ranking_base.replace('.csv', f'_top{n_features}.csv')}"
-
-    # ===============================
-    # ENTRENAMIENTO
-    # ===============================
-    if st.button("Entrenar modelo"):
-
-        cols_to_load = top_features + [target_col]
-
-        df = pd.read_csv(
+    if not is_unsupervised:
+        # ===============================
+        # CARGA DEL RANKING BASE
+        # ===============================
+        df_cols = pd.read_csv(
             "DatasetProcesado/TEP_features_train.csv",
-            usecols=cols_to_load
-        )
+            nrows=1
+        ).columns.tolist()
 
-        X = df[top_features].values
-        y = df[target_col].values
-
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_scaled,
-            y,
-            test_size=0.2,
-            random_state=42,
-            stratify=y
-        )
-
-        # MODELO OPTIMIZADO PARA STREAMLIT
-        clf = RandomForestClassifier(
-            n_estimators=40,
-            max_depth=12,
-            min_samples_leaf=30,
-            random_state=42,
-            n_jobs=-1
-        )
-
-        with st.spinner("Entrenando modelo..."):
-            clf.fit(X_train, y_train)
+        if os.path.exists(ranking_base):
+            ranking_full = pd.read_csv(ranking_base)
+            all_features = [f for f in ranking_full["feature"] if f in df_cols]
+        else:
+            st.error(f"No existe el ranking base: {ranking_base}")
+            st.stop()
 
         # ===============================
-        # GUARDADO
+        # SLIDER TOP-N FEATURES
         # ===============================
-        ranking_top = pd.DataFrame({
-            "feature": top_features,
-            "importance": clf.feature_importances_
-        }).sort_values("importance", ascending=False)
-
-        ranking_top.to_csv(ranking_path, index=False)
-
-        joblib.dump(
-            {
-                "model": clf,
-                "scaler": scaler,
-                "features": top_features
-            },
-            model_path
+        n_features = st.slider(
+            "Número de features a usar",
+            min_value=5,
+            max_value=len(all_features),
+            value=min(20, len(all_features)),
+            step=1,
+            key=f"slider_{modelo_sel}"
         )
 
-        st.success(f"Modelo guardado: {model_path}")
-        st.success(f"Ranking guardado: {ranking_path}")
+        top_features = all_features[:n_features]
+        st.write(f"Se entrenará con **{n_features} features**")
+
+        # Nombres finales
+        model_path   = f"{model_base}_top{n_features}.pkl"
+        ranking_path = f"{ranking_base.replace('.csv', f'_top{n_features}.csv')}"
 
         # ===============================
-        # EVALUACIÓN
+        # ENTRENAMIENTO
         # ===============================
-        y_pred = clf.predict(X_test)
+        if st.button("Entrenar modelo"):
 
-        st.subheader("Evaluación del Modelo")
-        st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.4f}")
-        st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
-        st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
-        st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+            cols_to_load = top_features + [target_col]
+
+            df = pd.read_csv(
+                "DatasetProcesado/TEP_features_train.csv",
+                usecols=cols_to_load
+            )
+
+            X = df[top_features].values
+            y = df[target_col].values
+
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_scaled,
+                y,
+                test_size=0.2,
+                random_state=42,
+                stratify=y
+            )
+
+            # MODELO OPTIMIZADO PARA STREAMLIT
+            clf = RandomForestClassifier(
+                n_estimators=40,
+                max_depth=12,
+                min_samples_leaf=30,
+                random_state=42,
+                n_jobs=-1
+            )
+
+            with st.spinner("Entrenando modelo..."):
+                clf.fit(X_train, y_train)
+
+            # ===============================
+            # GUARDADO
+            # ===============================
+            ranking_top = pd.DataFrame({
+                "feature": top_features,
+                "importance": clf.feature_importances_
+            }).sort_values("importance", ascending=False)
+
+            ranking_top.to_csv(ranking_path, index=False)
+
+            joblib.dump(
+                {
+                    "model": clf,
+                    "scaler": scaler,
+                    "features": top_features
+                },
+                model_path
+            )
+
+            st.success(f"Modelo guardado: {model_path}")
+            st.success(f"Ranking guardado: {ranking_path}")
+
+            # ===============================
+            # EVALUACIÓN
+            # ===============================
+            y_pred = clf.predict(X_test)
+
+            st.subheader("Evaluación del Modelo")
+            st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.4f}")
+            st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+            st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+            st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted', zero_division=0):.4f}")
+
+            fig, ax = plt.subplots(figsize=(6, 5))
+            sns.heatmap(
+                confusion_matrix(y_test, y_pred),
+                annot=True,
+                fmt="d",
+                cmap="Blues",
+                ax=ax
+            )
+            ax.set_xlabel("Predicción")
+            ax.set_ylabel("Valor real")
+            st.pyplot(fig)
+
+    # Unsupervised Models
+    if modelo_sel == "Detección de anomalías con Isolation Forest":
+
+        st.subheader("Detección de anomalías con Isolation Forest")
+
+        model_path = "Modelos/isolation_forest.pkl"
+
+        if not os.path.exists(model_path):
+            st.error("No se encontró el modelo Isolation Forest entrenado.")
+            st.stop()
+
+        # Cargar modelo
+        artifact = joblib.load(model_path)
+        iso     = artifact["model"]
+        scaler  = artifact["scaler"]
+        features = artifact["features"]
+
+        # Cargar datos de test
+        df_test = pd.read_csv("DatasetProcesado/TEP_features_test.csv")
+
+        X_test = df_test[features]
+        y_true = df_test["fault_present"]
+
+        X_test_scaled = scaler.transform(X_test)
+
+        # Predicción
+        y_pred = iso.predict(X_test_scaled)
+        y_pred = np.where(y_pred == -1, 1, 0)  # 1 = anomalía
+
+        # Métricas
+        st.subheader("Resultados")
+
+        from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+
+        st.text("Classification Report")
+        st.text(classification_report(y_true, y_pred))
 
         fig, ax = plt.subplots(figsize=(6, 5))
-        sns.heatmap(
-            confusion_matrix(y_test, y_pred),
-            annot=True,
-            fmt="d",
-            cmap="Blues",
-            ax=ax
-        )
+        sns.heatmap(confusion_matrix(y_true, y_pred), annot=True, fmt="d", cmap="Reds", ax=ax)
         ax.set_xlabel("Predicción")
         ax.set_ylabel("Valor real")
         st.pyplot(fig)
+
+        # ROC-AUC
+        scores = -iso.decision_function(X_test_scaled)
+        auc = roc_auc_score(y_true, scores)
+        st.write(f"**ROC-AUC:** {auc:.4f}")
+
+        # Score temporal
+        st.subheader("Puntuación de anomalía")
+
+        fig2, ax2 = plt.subplots(figsize=(12, 4))
+        ax2.plot(scores)
+        ax2.set_xlabel("Muestra")
+        ax2.set_ylabel("Anomalía")
+        st.pyplot(fig2)
+    
+    elif modelo_sel == "Detección de anomalías con Autoencoder":
+
+        st.subheader("Detección de anomalías con Autoencoder")
+
+        model_path = "Modelos/autoencoder_model.keras"
+        meta_path  = "Modelos/autoencoder_metadata.pkl"
+
+        if not os.path.exists(model_path) or not os.path.exists(meta_path):
+            st.error("No se encontraron los archivos del Autoencoder entrenado.")
+            st.stop()
+
+        # Cargar modelo y metadata
+        autoencoder = load_model(model_path)
+        metadata = joblib.load(meta_path)
+
+        scaler    = metadata["scaler"]
+        threshold = metadata["threshold"]
+        features  = metadata["features"]
+
+        # Datos de test
+        df_test = pd.read_csv("DatasetProcesado/TEP_features_test.csv")
+
+        X_test = df_test[features].values
+        y_true = df_test["fault_present"].values
+
+        X_test_scaled = scaler.transform(X_test)
+
+        # Reconstrucción
+        X_recon = autoencoder.predict(X_test_scaled, verbose=0)
+
+        mse = np.mean(np.square(X_test_scaled - X_recon), axis=1)
+
+        y_pred = (mse > threshold).astype(int)
+
+        # Métricas
+        st.subheader("Resultados")
+
+        from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+
+        st.text("Classification Report")
+        st.text(classification_report(y_true, y_pred))
+
+        fig, ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(confusion_matrix(y_true, y_pred), annot=True, fmt="d", cmap="Oranges", ax=ax)
+        ax.set_xlabel("Predicción")
+        ax.set_ylabel("Valor real")
+        st.pyplot(fig)
+
+        auc = roc_auc_score(y_true, mse)
+        st.write(f"**ROC-AUC:** {auc:.4f}")
+
+        # Error de reconstrucción
+        st.subheader("Error de reconstrucción")
+
+        fig2, ax2 = plt.subplots(figsize=(12, 4))
+        ax2.plot(mse)
+        ax2.axhline(threshold, linestyle="--", label="Threshold")
+        ax2.legend()
+        st.pyplot(fig2)
