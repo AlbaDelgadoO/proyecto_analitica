@@ -1,66 +1,80 @@
 import bentoml
 import numpy as np
-import pandas as pd
 from bentoml.io import NumpyNdarray
+from sklearn.preprocessing import StandardScaler
 
-# =========================
-# Función auxiliar: obtener top-10 features y ejemplo seguro
-# =========================
-def get_sample_input(model_number=1):
-    """
-    Devuelve un ejemplo de entrada para BentoML usando las top-10 features
-    del modelo seleccionado.
-    """
-    ranking_file = f"DatasetProcesado/feature_importance_ranking_model{model_number}_top10.csv"
-    ranking_top10 = pd.read_csv(ranking_file)
-    top_features = ranking_top10['feature'].tolist()
+# ============================================================
+# Función auxiliar: reconstruir scaler desde metadatos
+# ============================================================
+def build_scaler(model_ref):
+    mean = np.array(model_ref.info.metadata["scaler_mean"])
+    scale = np.array(model_ref.info.metadata["scaler_scale"])
 
-    df = pd.read_csv("DatasetProcesado/TEP_features_train.csv")
-    sample_row = df[top_features].iloc[0].fillna(0)  # rellenar NaN con 0
-    sample_input = [float(x) for x in sample_row.tolist()]  # convertir a float
-    return [sample_input], top_features
+    scaler = StandardScaler()
+    scaler.mean_ = mean
+    scaler.scale_ = scale
+    scaler.var_ = scale ** 2  # requerido por sklearn
+    return scaler
 
-# =========================
-# Cargar modelos y runners
-# =========================
+# ============================================================
+# Cargar modelos desde el Model Store
+# ============================================================
 model1_ref = bentoml.sklearn.get("tep_model1:latest")
 runner1 = model1_ref.to_runner()
+features1 = model1_ref.info.metadata["top_features"]
+scaler1 = build_scaler(model1_ref)
 
 model2_ref = bentoml.sklearn.get("tep_model2:latest")
 runner2 = model2_ref.to_runner()
+features2 = model2_ref.info.metadata["top_features"]
+scaler2 = build_scaler(model2_ref)
 
-svc = bentoml.Service("tep_fault_classifier", runners=[runner1, runner2])
+# ============================================================
+# Crear servicio BentoML
+# ============================================================
+svc = bentoml.Service(
+    "tep_fault_classifier",
+    runners=[runner1, runner2]
+)
 
-# =========================
-# Valores de ejemplo
-# =========================
-sample_input1, features1 = get_sample_input(1)
-sample_input2, features2 = get_sample_input(2)
+# ============================================================
+# Crear ejemplos de entrada para validación
+# ============================================================
+sample_input1 = [[0.0] * 10]
+sample_input2 = [[0.0] * len(features2)]
 
-# =========================
-# Endpoint POST para Modelo 1
-# =========================
+# ============================================================
+# Endpoint Modelo 1: Clasificación binaria
+# ============================================================
 @svc.api(input=NumpyNdarray.from_sample(sample_input1), output=NumpyNdarray())
 async def predict_model1(input_array: np.ndarray) -> np.ndarray:
-    """
-    Predicción Modelo 1: Clasificación Binaria (Fallo vs Normal)
-    input_array: np.ndarray con forma (n_samples, 10 features)
-    """
-    if input_array.shape[1] != 10:
-        raise ValueError(f"Modelo 1 espera 10 features, pero la entrada tiene {input_array.shape[1]}")
-    prediction = await runner1.predict.async_run(input_array)
+    expected = len(features1)
+
+    if input_array.shape[1] != expected:
+        raise ValueError(
+            f"Modelo 1 espera {expected} features, pero la entrada tiene {input_array.shape[1]}"
+        )
+
+    # Escalado consistente con el entrenamiento
+    input_scaled = scaler1.transform(input_array)
+
+    prediction = await runner1.predict.async_run(input_scaled)
     return np.array(prediction)
 
-# =========================
-# Endpoint POST para Modelo 2
-# =========================
+# ============================================================
+# Endpoint Modelo 2: Predicción de horizonte de fallo
+# ============================================================
 @svc.api(input=NumpyNdarray.from_sample(sample_input2), output=NumpyNdarray())
 async def predict_model2(input_array: np.ndarray) -> np.ndarray:
-    """
-    Predicción Modelo 2: Predicción de Fallos Futuros (Horizonte)
-    input_array: np.ndarray con forma (n_samples, 10 features)
-    """
-    if input_array.shape[1] != 10:
-        raise ValueError(f"Modelo 2 espera 10 features, pero la entrada tiene {input_array.shape[1]}")
-    prediction = await runner2.predict.async_run(input_array)
+    expected = len(features2)
+
+    if input_array.shape[1] != expected:
+        raise ValueError(
+            f"Modelo 2 espera {expected} features, pero la entrada tiene {input_array.shape[1]}"
+        )
+
+    # Escalado consistente con el entrenamiento
+    input_scaled = scaler2.transform(input_array)
+
+    prediction = await runner2.predict.async_run(input_scaled)
     return np.array(prediction)
