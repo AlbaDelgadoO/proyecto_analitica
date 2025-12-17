@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-
+import requests
 import os
 import joblib
 from tensorflow.keras.models import load_model
@@ -52,7 +52,7 @@ df = load_data()
 
 # BARRA LATERAL (NAVEGACIÓN)
 st.sidebar.image("img/menu.png", width=50)
-page = st.sidebar.radio("Ir a:", ["Análisis Exploratorio (EDA)", "Modelado y Entrenamiento"])
+page = st.sidebar.radio("Ir a:", ["Análisis Exploratorio (EDA)", "Modelado y Entrenamiento", "Predicción vía API BentoML"])
 
 if df is None:
     st.error("No se encontraron los archivos CSV.")
@@ -239,230 +239,12 @@ if page == "Análisis Exploratorio (EDA)":
                 
                 st.pyplot(fig)
 
-# # ==========================================
-# # PÁGINA 2: MODELADO Y ENTRENAMIENTO 
-# # ==========================================
-# elif page == "Modelado y Entrenamiento":
-#     st.title("Laboratorio de Modelos ML")
-#     st.markdown("Entrena y evalúa modelos de clasificación en tiempo real.")
-
-#     # --- Selección de Modelo ---
-#     modelo_sel = st.selectbox(
-#         "Selecciona el modelo que deseas entrenar:",
-#         ["Clasificación Binaria (Fallo vs Normal)", 
-#          "Predicción de Fallos Futuros (Horizonte)", 
-#          "Clasificación Multiclase de Tipo de Fallo"]
-#     )
-
-#     # --- Selección de Variables ---
-#     variables_sel = st.multiselect(
-#         "Selecciona variables predictoras:", 
-#         options=ALL_SENSORS,
-#         default=ALL_SENSORS
-#     )
-
-#     if not variables_sel:
-#         st.warning("Debes seleccionar al menos una variable.")
-#         st.stop()
-
-#     # --- Botón para Entrenar ---
-#     if st.button("Entrenar Modelo"):
-#         st.info("Entrenando modelo... Esto puede tardar unos segundos.")
-        
-#         # Preparación de datos
-#         if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
-#             target = "fault_present"
-#             X = df[variables_sel]
-#             y = df[target]
-#             scaler = StandardScaler()
-#             X_scaled = scaler.fit_transform(X)
-#             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-#             clf = RandomForestClassifier(n_estimators=100, random_state=42)
-#             clf.fit(X_train, y_train)
-
-#         elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
-#             target = "fault_present"  # Ajusta si tienes otra variable para el horizonte
-#             X = df[variables_sel]
-#             y = df[target]
-#             scaler = StandardScaler()
-#             X_scaled = scaler.fit_transform(X)
-#             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-#             clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')
-#             clf.fit(X_train, y_train)
-
-#         elif modelo_sel == "Clasificación Multiclase de Tipo de Fallo":
-#             target = "faultNumber"
-#             X = df[variables_sel]
-#             y = df[target]
-#             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-#             clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
-#             clf.fit(X_train, y_train)
-
-#         # --- Evaluación ---
-#         st.subheader("Evaluación del Modelo")
-#         y_pred = clf.predict(X_test)
-
-#         st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.2f}")
-#         st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted'):.2f}")
-#         st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted'):.2f}")
-#         st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted'):.2f}")
-
-#         st.subheader("Matriz de Confusión")
-#         fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
-#         sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-#         ax_cm.set_xlabel("Predicción")
-#         ax_cm.set_ylabel("Valor Real")
-#         st.pyplot(fig_cm)
-
-#         # --- Predicción en Tiempo Real ---
-#         st.subheader("Predicción en Tiempo Real")
-#         uploaded_file = st.file_uploader("Sube archivo CSV con nuevas simulaciones", type=["csv"])
-#         if uploaded_file:
-#             df_new = pd.read_csv(uploaded_file)
-#             if set(variables_sel).issubset(df_new.columns):
-#                 X_new = df_new[variables_sel]
-#                 # Escalado si aplica
-#                 if modelo_sel != "Clasificación Multiclase de Tipo de Fallo":
-#                     X_new = scaler.transform(X_new)
-#                 preds = clf.predict(X_new)
-#                 df_new["Predicción"] = preds
-#                 st.dataframe(df_new.head(20), use_container_width=True)
-#             else:
-#                 st.error("El CSV no contiene todas las variables seleccionadas.")
-
-
-# ==========================================
-# PÁGINA 2: MODELADO Y ENTRENAMIENTO / PREDICCIÓN BENTO
-# ==========================================
-#elif page == "Modelado y Entrenamiento":
-#    st.title("Laboratorio de Modelos ML")
-#    st.markdown("Entrena y evalúa modelos de clasificación en tiempo real.")
-
-    # --- Selección de Modelo ---
-#    modelo_sel = st.selectbox(
-#        "Selecciona el modelo que deseas entrenar:",
-#        ["Clasificación Binaria (Fallo vs Normal)", 
-#         "Predicción de Fallos Futuros (Horizonte)", 
-#         "Clasificación Multiclase de Tipo de Fallo"]
-#    )
-
-    # --- Selección de Variables ---
-#    variables_sel = st.multiselect(
-#        "Selecciona variables predictoras:", 
-#        options=ALL_SENSORS,
-#        default=ALL_SENSORS
-#    )
-
-#    if not variables_sel:
-#        st.warning("Debes seleccionar al menos una variable.")
-#        st.stop()
-
-    # --- Botón para Entrenar ---
-#    if st.button("Entrenar Modelo Local"):
-#        st.info("Entrenando modelo... Esto puede tardar unos segundos.")
-        
-        # Preparación de datos y entrenamiento
-#        if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
-#            target = "fault_present"
-#            X = df[variables_sel]
-#            y = df[target]
-#            scaler = StandardScaler()
-#            X_scaled = scaler.fit_transform(X)
-#            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-#            clf = RandomForestClassifier(n_estimators=100, random_state=42)
-#            clf.fit(X_train, y_train)
-
-#        elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
-#            target = "fault_present"  # Ajusta si tienes otra variable para el horizonte
-#            X = df[variables_sel]
-#            y = df[target]
-#            scaler = StandardScaler()
-#            X_scaled = scaler.fit_transform(X)
-#            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-#            clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced')
-#            clf.fit(X_train, y_train)
-
-#        elif modelo_sel == "Clasificación Multiclase de Tipo de Fallo":
-#            target = "faultNumber"
-#            X = df[variables_sel]
-#            y = df[target]
-#            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-#            clf = RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1)
-#            clf.fit(X_train, y_train)
-
-        # --- Evaluación del Modelo Local ---
-#        st.subheader("Evaluación del Modelo Local")
-#        y_pred = clf.predict(X_test)
-
-#        st.write(f"**Accuracy:** {accuracy_score(y_test, y_pred):.2f}")
-#        st.write(f"**Precision:** {precision_score(y_test, y_pred, average='weighted'):.2f}")
-#        st.write(f"**Recall:** {recall_score(y_test, y_pred, average='weighted'):.2f}")
-#        st.write(f"**F1-score:** {f1_score(y_test, y_pred, average='weighted'):.2f}")
-
-#        st.subheader("Matriz de Confusión")
-#        fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
-#        sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-#        ax_cm.set_xlabel("Predicción")
-#        ax_cm.set_ylabel("Valor Real")
-#        st.pyplot(fig_cm)
-
-        # --- Predicción en Tiempo Real Local ---
-#        st.subheader("Predicción en Tiempo Real (Local)")
-#        uploaded_file = st.file_uploader("Sube archivo CSV con nuevas simulaciones", type=["csv"])
-#        if uploaded_file:
-#            df_new = pd.read_csv(uploaded_file)
-#            if set(variables_sel).issubset(df_new.columns):
-#                X_new = df_new[variables_sel]
-#                if modelo_sel != "Clasificación Multiclase de Tipo de Fallo":
-#                    X_new = scaler.transform(X_new)
-#                preds = clf.predict(X_new)
-#                df_new["Predicción"] = preds
-#                st.dataframe(df_new.head(20), use_container_width=True)
-#            else:
-#                st.error("El CSV no contiene todas las variables seleccionadas.")
-
-# ==========================================
-# NUEVA PÁGINA: PREDICCIÓN VÍA API BENTO
-# ==========================================
-#elif page == "Predicción vía API BentoML":
-#    st.title("Predicción en Tiempo Real usando BentoML API")
-#    st.markdown("Introduce los valores de las 52 variables y obtén la predicción del modelo servido por BentoML.")
-
-    # Crear sliders para las 52 variables
-#    features = [st.slider(f"{var}", 0.0, 10.0, 0.5) for var in ALL_SENSORS]
-
-#    if st.button("Predecir con API"):
-#        try:
-#            response = requests.post(
-#                "http://localhost:3000/predict",
-#                json={"features": features}
-#            )
-#            if response.status_code == 200:
-#                result = response.json()
-#                st.write("Predicción:", result["prediction"])
-#                st.write("Probabilidades:", result["probabilities"])
-#            else:
-#                st.error(f"Error al conectar con API: {response.status_code}")
-#        except Exception as e:
-#            st.error(f"No se pudo conectar con la API: {e}")
-
-
-
 # ==========================================
 # PÁGINA 2: MODELADO Y ENTRENAMIENTO
 # ==========================================
 elif page == "Modelado y Entrenamiento":
 
-    import os
-    import joblib
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-
+    st.image("img/entrenamiento.png", width=100)
     st.title("Laboratorio de Modelos ML")
     st.markdown("Entrena y evalúa modelos de clasificación usando selección por importancia.")
 
@@ -739,3 +521,120 @@ elif page == "Modelado y Entrenamiento":
         ax2.axhline(threshold, linestyle="--", label="Threshold")
         ax2.legend()
         st.pyplot(fig2)
+
+# ==========================================
+# PÁGINA 3: PREDICCIÓN VÍA API BENTOML (CORREGIDA FINAL)
+# ==========================================
+elif page == "Predicción vía API BentoML":
+    st.image("img/modelo.png", width=100)
+    st.title("Panel de Inferencia en Tiempo Real")
+    st.markdown("Diagnóstico industrial mediante modelos servidos en BentoML.")
+
+    # 1. Carga de datos de test
+    try:
+        df_test = pd.read_csv("DatasetProcesado/TEP_features_test.csv")
+    except Exception as e:
+        st.error(f"No se encontró el dataset de test: {e}")
+        st.stop()
+
+    st.subheader("1. Selección de Datos de Entrada")
+    
+    if 'idx_test' not in st.session_state:
+        st.session_state.idx_test = 0
+            
+    col_idx, col_btn = st.columns([2, 1])
+
+    idx = st.number_input("Índice de fila:", 0, len(df_test)-1, value=st.session_state.idx_test)
+    st.session_state.idx_test = idx
+
+    if st.button("Fila aleatoria"):
+        st.session_state.idx_test = np.random.randint(0, len(df_test))
+        st.rerun()
+            
+    fila_raw = df_test.iloc[[st.session_state.idx_test]]
+    
+    st.write(f"Muestra de la fila seleccionada: **{st.session_state.idx_test}**")
+    st.dataframe(fila_raw.iloc[:, :12], use_container_width=True)
+
+    # --- BLOQUE DE DIAGNÓSTICO (Opcional, se puede comentar después de arreglar) ---
+    with st.expander("🔍 Diagnóstico de Datos de Entrada"):
+        cols_diag = ["faultNumber", "fault_present", "simulationRun", "sample"]
+        df_diag = fila_raw.drop(columns=[c for c in cols_diag if c in fila_raw.columns])
+        nans_in = df_diag.isna().sum().sum()
+        infs_in = np.isinf(df_diag.values).sum()
+        max_val = np.abs(df_diag.values).max()
+        
+        st.write(f"¿Hay NaNs?: {nans_in} | ¿Hay Infinitos?: {infs_in} | Valor Max: {max_val:.2e}")
+        if nans_in > 0 or infs_in > 0:
+            st.warning("⚠️ Los datos contienen valores no válidos para JSON. Se limpiarán automáticamente.")
+
+    st.divider()
+
+    st.subheader("2. Ejecución de Modelos")
+    modelo_api = st.selectbox("Selecciona el modelo para la inferencia:", [
+        "Binario (Normal vs Fallo)", 
+        "Horizonte (Detección Temprana)",
+        "Multiclase (Tipo de Fallo)", 
+        "Isolation Forest (Anomalías)",
+        "Autoencoder (Reconstrucción)"
+    ])
+
+    endpoints = {
+        "Binario (Normal vs Fallo)": "predict_binary",
+        "Horizonte (Detección Temprana)": "predict_horizon",
+        "Multiclase (Tipo de Fallo)": "predict_multiclass",
+        "Isolation Forest (Anomalías)": "predict_isolation",
+        "Autoencoder (Reconstrucción)": "predict_autoencoder"
+    }
+
+    if st.button("Ejecutar Diagnóstico"):
+        cols_to_drop = ["faultNumber", "fault_present", "simulationRun", "sample"]
+        df_api = fila_raw.drop(columns=[c for c in cols_to_drop if c in fila_raw.columns])
+        
+        # --- LIMPIEZA CRÍTICA ANTES DE ENVIAR ---
+        # 1. Reemplazamos Infinitos por NaN
+        df_api = df_api.replace([np.inf, -np.inf], np.nan)
+        # 2. Reemplazamos NaN por 0 (o la media si lo prefieres)
+        df_api = df_api.fillna(0)
+        
+        # Convertimos a float32 (estándar de ML)
+        input_data = df_api.values.astype(np.float32) 
+
+        try:
+            with st.spinner(f"Consultando {modelo_api}..."):
+                url = f"http://localhost:3000/{endpoints[modelo_api]}"
+                response = requests.post(url, json=input_data.tolist())
+                
+                if response.status_code == 200:
+                    res = response.json()
+                    st.success("¡Diagnóstico recibido correctamente!")
+                    
+                    pred = res.get("prediction")
+                    
+                    # Dashboard de métricas
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        if "Multiclase" in modelo_api:
+                            label = "✅ NORMAL" if pred == 0 else f"🚨 FALLO TIPO {pred}"
+                        else:
+                            label = "🚨 FALLO" if pred == 1 else "✅ NORMAL"
+                        st.metric("Resultado", label)
+                    
+                    with c2:
+                        if "mse" in res:
+                            st.metric("Error Reconstrucción", f"{res['mse']:.4f}")
+                        elif "Multiclase" in modelo_api:
+                            st.metric("ID de Clase", pred)
+
+                    with c3:
+                        if "threshold" in res:
+                            st.metric("Umbral Crítico", f"{res['threshold']:.4f}")
+
+                    with st.expander("Ver detalles técnicos (JSON)"):
+                        st.json(res)
+                else:
+                    st.error(f"Error de la API ({response.status_code}): {response.text}")
+                    
+        except Exception as e:
+            st.error(f"Fallo de conexión con BentoML: {e}")
+            st.info("Asegúrate de que BentoML está corriendo en la terminal con 'bentoml serve'")
