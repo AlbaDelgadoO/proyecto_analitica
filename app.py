@@ -25,14 +25,14 @@ def load_top_features():
 TOP_FEATURES = load_top_features()
 
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# CONFIGURAR LA PÁGINA
 st.set_page_config(
     page_title="TEP - Detección de Fallos",
     page_icon="🏭",
     layout="wide"
 )
 
-# --- 1. FUNCIÓN DE CARGA DE DATOS ---
+# 1. FUNCIÓN DE CARGA DE DATOS
 @st.cache_data
 def load_data():
     data_dir = "DatasetReducido" 
@@ -68,7 +68,7 @@ if df is None:
     st.stop()
 
 
-# PÁGINA: ANÁLISIS EXPLORATORIO (EDA)
+# PÁGINA 1: ANÁLISIS EXPLORATORIO (EDA)
 if page == "Análisis Exploratorio (EDA)":
     st.image("img/data.png", width=100)
     st.title("Análisis Exploratorio de Datos")
@@ -249,9 +249,7 @@ if page == "Análisis Exploratorio (EDA)":
 
 
 
-
-
-# PÁGINA: INGENIERÍA DE CARACTERÍSTICAS
+# PÁGINA 2: INGENIERÍA DE CARACTERÍSTICAS
 elif page == "Ingeniería de Características":
     import streamlit as st
     import pandas as pd
@@ -335,8 +333,7 @@ elif page == "Ingeniería de Características":
 
 
 
-
-# PÁGINA: MODELADO Y ENTRENAMIENTO
+# PÁGINA 3: MODELADO Y ENTRENAMIENTO
 elif page == "Modelado y Entrenamiento":
 
     st.image("img/entrenamiento.png", width=100)
@@ -372,7 +369,7 @@ elif page == "Modelado y Entrenamiento":
         ranking_base = "modelos/feature_importance_ranking_model2.csv"
         model_base   = "Modelos/model2_rf"
     
-    else:  # MODELO 3
+    else:  
         target_col   = "faultNumber"
         ranking_base = "modelos/feature_importance_ranking_model3.csv"
         model_base   = "Modelos/model3_rf"
@@ -605,9 +602,8 @@ elif page == "Modelado y Entrenamiento":
         ax2.legend()
         st.pyplot(fig2)
 
-# ==========================================
-# PÁGINA 3: PREDICCIÓN VÍA API BENTOML (CORREGIDA FINAL)
-# ==========================================
+
+# PÁGINA 4: PREDICCIÓN VÍA API BENTOML
 elif page == "Predicción vía API BentoML":
     st.image("img/modelo.png", width=100)
     st.title("Panel de Inferencia en Tiempo Real")
@@ -661,9 +657,8 @@ elif page == "Predicción vía API BentoML":
     if st.button("Ejecutar Diagnóstico"):
         cols_to_drop = ["faultNumber", "fault_present", "simulationRun", "sample"]
         
-        # SELECCIÓN CORRECTA DE FEATURES (CLAVE DEL PROBLEMA)
+        # SELECCIÓN CORRECTA DE FEATURES
         
-
         # 1. Quitamos columnas no numéricas / labels
         df_api = fila_raw.drop(columns=[c for c in cols_to_drop if c in fila_raw.columns])
 
