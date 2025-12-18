@@ -5,124 +5,116 @@ import logging
 from bentoml.io import JSON
 from sklearn.preprocessing import StandardScaler
 
-# --- Configuración de logs ---
+# ---------------------------
+# CONFIGURACIÓN DE LOGS
+# ---------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("bentoml.service")
+logger = logging.getLogger("tep_fault_classifier")
 
-# ============================================================
-# 1. CARGA DE CONFIGURACIÓN (TOP FEATURES)
-# ============================================================
+# ---------------------------
+# 1. CARGA DE TOP FEATURES
+# ---------------------------
 try:
     with open("DatasetProcesado/top_features.json", "r") as f:
-        TOP_FEATURES_LIST = json.load(f)
+        TOP_FEATURES = json.load(f)
 except FileNotFoundError:
-    logger.error("ERROR: No se encontró DatasetProcesado/top_features.json")
-    TOP_FEATURES_LIST = []
+    logger.error("ERROR: No se encontró top_features.json")
+    TOP_FEATURES = []
 
-if not TOP_FEATURES_LIST:
+if not TOP_FEATURES:
     raise ValueError("❌ top_features.json está vacío. No se puede continuar.")
-logger.info(f"✅ Cargadas {len(TOP_FEATURES_LIST)} features del JSON.")
+logger.info(f"✅ Cargadas {len(TOP_FEATURES)} features del JSON.")
 
-# Crear un diccionario para mapear cada feature a su índice
-FEATURE_INDICES = {feature: idx for idx, feature in enumerate(TOP_FEATURES_LIST)}
-
-# ============================================================
+# ---------------------------
 # 2. FUNCIONES AUXILIARES
-# ============================================================
+# ---------------------------
 def build_scaler(model_ref):
-    """Reconstruye el StandardScaler a partir de metadatos del modelo."""
+    """Reconstruye StandardScaler desde metadata."""
     try:
-        mean = np.array(model_ref.info.metadata["scaler_mean"])
-        scale = np.array(model_ref.info.metadata["scaler_scale"])
+        mean = np.array(model_ref.info.metadata.get("scaler_mean", []))
+        scale = np.array(model_ref.info.metadata.get("scaler_scale", []))
+        if len(mean) == 0 or len(scale) == 0:
+            return None
         scaler = StandardScaler()
         scaler.mean_ = mean
         scaler.scale_ = scale
         scaler.var_ = scale ** 2
         return scaler
     except Exception as e:
-        logger.error(f"Error reconstruyendo scaler para {model_ref.tag}: {e}")
+        logger.warning(f"No se pudo reconstruir scaler: {e}")
         return None
 
 def preprocess_input(input_array):
-    """Selecciona features y limpia NaNs/Infs."""
+    """Asegura np.ndarray y selecciona solo TOP_FEATURES."""
     if not isinstance(input_array, np.ndarray):
         input_array = np.array(input_array, dtype=np.float32)
 
     if input_array.ndim == 1:
         input_array = input_array.reshape(1, -1)
 
-    # Seleccionar features
-    try:
-        indices = list(range(len(TOP_FEATURES_LIST)))
-        X = input_array[:, indices].astype(np.float32)
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        return X
-    except Exception as e:
-        logger.error(f"Error en preprocess_input: {e}")
-        raise
+    if input_array.shape[1] != len(TOP_FEATURES):
+        raise ValueError(
+            f"❌ Input tiene {input_array.shape[1]} features pero se esperaban {len(TOP_FEATURES)}"
+        )
 
-# ============================================================
-# 3. CREAR SERVICIO BENTOML
-# ============================================================
-svc = bentoml.Service("tep_fault_classifier")
+    X = np.nan_to_num(input_array, nan=0.0, posinf=0.0, neginf=0.0)
+    return X
 
-# ============================================================
-# 4. CACHE PARA RUNNERS Y SCALERS
-# ============================================================
-model_cache = {}
+# ---------------------------
+# 3. CREAR RUNNERS Y ESCALERS
+# ---------------------------
+runner1 = bentoml.sklearn.get("tep_model1:latest").to_runner()
+runner2 = bentoml.sklearn.get("tep_model2:latest").to_runner()
+runner3 = bentoml.sklearn.get("tep_model3:latest").to_runner()
+runner4 = bentoml.sklearn.get("tep_model4:latest").to_runner()
 
-def get_model_runner(model_name, module="sklearn"):
-    """Carga el modelo y scaler si no están en cache y devuelve ambos."""
-    if model_name in model_cache:
-        return model_cache[model_name]
+scaler1 = build_scaler(bentoml.sklearn.get("tep_model1:latest"))
+scaler2 = build_scaler(bentoml.sklearn.get("tep_model2:latest"))
+scaler3 = build_scaler(bentoml.sklearn.get("tep_model3:latest"))
+scaler4 = build_scaler(bentoml.sklearn.get("tep_model4:latest"))
 
-    # Cargar modelo
-    try:
-        if module == "sklearn":
-            model_ref = bentoml.sklearn.get(model_name)
-        elif module == "tensorflow":
-            model_ref = bentoml.tensorflow.get(model_name)
-        else:
-            raise ValueError(f"Módulo desconocido: {module}")
-    except Exception as e:
-        logger.error(f"No se pudo cargar el modelo {model_name}: {e}")
-        raise
+# ---------------------------
+# 4. CACHE DE MODELOS
+# ---------------------------
+model_cache = {
+    "tep_model1:latest": (runner1, scaler1),
+    "tep_model2:latest": (runner2, scaler2),
+    "tep_model3:latest": (runner3, scaler3),
+    "tep_model4:latest": (runner4, scaler4),
+}
 
-    # Reconstruir scaler
-    scaler = build_scaler(model_ref)
-    if scaler is None:
-        logger.warning(f"Scaler no disponible para {model_name}, se usará input sin escalar.")
+def get_runner_and_scaler(model_name):
+    """Devuelve runner y scaler desde cache."""
+    return model_cache[model_name]
 
-    runner = model_ref.to_runner()
-    model_cache[model_name] = (runner, scaler)
-    return runner, scaler
+# ---------------------------
+# 5. CREAR SERVICIO
+# ---------------------------
+svc = bentoml.Service(
+    "tep_fault_classifier",
+    runners=[runner1, runner2, runner3, runner4]
+)
 
-# ============================================================
-# 5. ENDPOINTS CON LOGS DETALLADOS
-# ============================================================
-async def predict_generic(input_data, model_name, module="sklearn"):
+# ---------------------------
+# 6. PREDICCIÓN GENÉRICA
+# ---------------------------
+async def predict_generic(input_data, model_name):
     try:
         logger.info("=== INPUT ORIGINAL ===")
         logger.info(input_data)
-        logger.info("Tipo de input: %s", type(input_data))
 
         X = preprocess_input(input_data)
-        logger.info("=== INPUT PROCESADO ===")
+        logger.info(f"=== INPUT PROCESADO (shape={X.shape}) ===")
         logger.info(X)
-        logger.info("Forma: %s", X.shape)
 
-        runner, scaler = get_model_runner(model_name, module)
+        runner, scaler = get_runner_and_scaler(model_name)
+        X_scaled = scaler.transform(X) if scaler else X
 
-        if scaler:
-            X_scaled = scaler.transform(X)
-        else:
-            X_scaled = X
-        logger.info("=== X ESCALADO ===")
+        logger.info("=== INPUT ESCALADO ===")
         logger.info(X_scaled)
 
         prediction = await runner.predict.async_run(X_scaled)
-        logger.info("=== PREDICCIÓN ===")
-        logger.info(prediction)
+        logger.info(f"=== PREDICCIÓN === {prediction}")
 
         return {"prediction": int(prediction[0])}
 
@@ -130,53 +122,24 @@ async def predict_generic(input_data, model_name, module="sklearn"):
         logger.exception("ERROR en predict_generic:")
         return {"error": str(e)}
 
+# ---------------------------
+# 7. ENDPOINTS
+# ---------------------------
 @svc.api(input=JSON(), output=JSON())
 async def predict_binary(input_data):
-    return await predict_generic(input_data, "tep_model1:latest", "sklearn")
+    return await predict_generic(input_data, "tep_model1:latest")
 
 @svc.api(input=JSON(), output=JSON())
 async def predict_horizon(input_data):
-    return await predict_generic(input_data, "tep_model2:latest", "sklearn")
+    return await predict_generic(input_data, "tep_model2:latest")
 
 @svc.api(input=JSON(), output=JSON())
 async def predict_multiclass(input_data):
-    return await predict_generic(input_data, "tep_model3:latest", "sklearn")
+    return await predict_generic(input_data, "tep_model3:latest")
 
 @svc.api(input=JSON(), output=JSON())
 async def predict_isolation(input_data):
-    res = await predict_generic(input_data, "tep_model4:latest", "sklearn")
-    # Ajuste para método de aislamiento: convertir -1 a 1
-    if "prediction" in res and res["prediction"] == -1:
-        res["prediction"] = 1
-    else:
-        res["prediction"] = 0
+    res = await predict_generic(input_data, "tep_model4:latest")
+    if "prediction" in res:
+        res["prediction"] = 1 if res["prediction"] == -1 else 0
     return res
-
-@svc.api(input=JSON(), output=JSON())
-async def predict_autoencoder(input_data):
-    try:
-        X = preprocess_input(input_data)
-        runner, scaler = get_model_runner("tep_model5:latest", "tensorflow")
-
-        if scaler:
-            X_scaled = scaler.transform(X)
-        else:
-            X_scaled = X
-
-        reconstruction = await runner.predict.async_run(X_scaled)
-        mse = np.mean(np.square(X_scaled - reconstruction))
-        if not np.isfinite(mse):
-            mse = 999.0
-
-        ae_threshold = float(
-            bentoml.tensorflow.get("tep_model5:latest").info.metadata.get("threshold", 0.0)
-        )
-        res = 1 if mse > ae_threshold else 0
-
-        logger.info("=== AUTOENCODER ===")
-        logger.info("MSE: %f, Threshold: %f, Prediction: %d", mse, ae_threshold, res)
-        return {"prediction": res, "mse": float(mse), "threshold": float(ae_threshold)}
-
-    except Exception as e:
-        logger.exception("ERROR en predict_autoencoder:")
-        return {"error": str(e)}

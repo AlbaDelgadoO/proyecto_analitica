@@ -15,6 +15,15 @@ import joblib
 from tensorflow.keras.models import load_model
 from sklearn.ensemble import IsolationForest
 
+import json
+
+@st.cache_data
+def load_top_features():
+    with open("DatasetProcesado/top_features.json", "r") as f:
+        return json.load(f)
+
+TOP_FEATURES = load_top_features()
+
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -544,7 +553,7 @@ elif page == "Predicción vía API BentoML":
             
     col_idx, col_btn = st.columns([2, 1])
 
-    idx = st.number_input("Índice de fila:", 0, len(df_test)-1, value=st.session_state.idx_test)
+    idx = st.number_input("Índice de fila:", 1, len(df_test)-1, value=max(1, st.session_state.idx_test))
     st.session_state.idx_test = idx
 
     if st.button("Fila aleatoria"):
@@ -555,18 +564,6 @@ elif page == "Predicción vía API BentoML":
     
     st.write(f"Muestra de la fila seleccionada: **{st.session_state.idx_test}**")
     st.dataframe(fila_raw.iloc[:, :12], use_container_width=True)
-
-    # --- BLOQUE DE DIAGNÓSTICO (Opcional, se puede comentar después de arreglar) ---
-    with st.expander("🔍 Diagnóstico de Datos de Entrada"):
-        cols_diag = ["faultNumber", "fault_present", "simulationRun", "sample"]
-        df_diag = fila_raw.drop(columns=[c for c in cols_diag if c in fila_raw.columns])
-        nans_in = df_diag.isna().sum().sum()
-        infs_in = np.isinf(df_diag.values).sum()
-        max_val = np.abs(df_diag.values).max()
-        
-        st.write(f"¿Hay NaNs?: {nans_in} | ¿Hay Infinitos?: {infs_in} | Valor Max: {max_val:.2e}")
-        if nans_in > 0 or infs_in > 0:
-            st.warning("⚠️ Los datos contienen valores no válidos para JSON. Se limpiarán automáticamente.")
 
     st.divider()
 
@@ -589,16 +586,30 @@ elif page == "Predicción vía API BentoML":
 
     if st.button("Ejecutar Diagnóstico"):
         cols_to_drop = ["faultNumber", "fault_present", "simulationRun", "sample"]
+        # ======================================================
+        # SELECCIÓN CORRECTA DE FEATURES (CLAVE DEL PROBLEMA)
+        # ======================================================
+
+        # 1. Quitamos columnas no numéricas / labels
         df_api = fila_raw.drop(columns=[c for c in cols_to_drop if c in fila_raw.columns])
-        
-        # --- LIMPIEZA CRÍTICA ANTES DE ENVIAR ---
-        # 1. Reemplazamos Infinitos por NaN
+
+        # 2. Verificación dura
+        missing = [f for f in TOP_FEATURES if f not in df_api.columns]
+        extra   = [c for c in df_api.columns if c not in TOP_FEATURES]
+
+        if missing:
+            st.error(f"Faltan features requeridas por el modelo: {missing}")
+            st.stop()
+
+        # 3. Selección y ORDEN EXACTO
+        df_api = df_api[TOP_FEATURES]
+
+        # 4. Limpieza
         df_api = df_api.replace([np.inf, -np.inf], np.nan)
-        # 2. Reemplazamos NaN por 0 (o la media si lo prefieres)
         df_api = df_api.fillna(0)
-        
-        # Convertimos a float32 (estándar de ML)
-        input_data = df_api.values.astype(np.float32) 
+
+        # 5. Conversión final
+        input_data = df_api.values.astype(np.float32)
 
         try:
             with st.spinner(f"Consultando {modelo_api}..."):
