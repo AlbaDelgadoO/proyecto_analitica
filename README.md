@@ -37,6 +37,7 @@ Estos archivos se incluyen en la carpeta del proyecto. Sin embargo en caso de qu
 Los datasets originales se reducen y procesan mediante el notebook Reducir_Dataset, generando versiones optimizadas para el modelado.
 
 ## Estructura del proyecto
+```
 proyecto_analitica/
 │
 ├── DatasetReducido/ # Generado tras ejecutar Reducir_Dataset.ipynb
@@ -51,19 +52,21 @@ proyecto_analitica/
 │
 ├── app.py # Aplicación Streamlit
 ├── service.py # Servicio BentoML para inferencia
-├── train_model.py # Script auxiliar de entrenamiento
+├── requirements.txt # librerías necesarias
 │
-├── bentoml/ # Artefactos generados por BentoML
+├── bentoml/ # BentoML
 │
-├── TEP_FaultFree_Training.RData
+├── TEP_FaultFree_Training.RData # Dataset originales
 ├── TEP_FaultFree_Testing.RData
 ├── TEP_Faulty_Training.RData
 ├── TEP_Faulty_Testing.RData
 └── README.md
-
+```
 
 ## Flujo de ejecución
-Este es el flujo de ejcución del trabajo completo. Se recomienda seguir el orden de ejecución de los archivos jupyter notebooks.
+Este es el flujo de ejecución del trabajo completo. Se recomienda seguir el orden de ejecución de los archivos jupyter notebooks.
+
+Recomendamos crear el environment e instalar las librerias que aparecen en el requirements.txt antes de realizar este proceso. 
 
 1. **Reducción del dataset**
    - Ejecutar `Reducir_Dataset.ipynb` para generar `DatasetReducido/`.
@@ -74,6 +77,8 @@ Este es el flujo de ejcución del trabajo completo. Se recomienda seguir el orde
 3. **Ingeniería de características**
    - Ejecutar `Ingenieria_de_caracteristicas.ipynb` para generar `DatasetProcesado/`.
 
+En este punto la generación de environment es necesaria para poder continuar. El proceso de creación se detalla al final del documento.
+
 4. **Entrenamiento y evaluación de modelos**
    - Ejecutar `Modelos.ipynb`:
      - **Modelo 1:** Clasificación binaria (fallo presente / no fallo).
@@ -82,29 +87,38 @@ Este es el flujo de ejcución del trabajo completo. Se recomienda seguir el orde
      - **Modelos no supervisados:** Isolation Forest y Autoencoder para detección de anomalías.
 
 5. **Aplicación Streamlit**
-   - Ejecutar en la terminal, dentro de la carpeta del proyecto:
+   - Ejecutar en la terminal, dentro de environment y dentro de la carpeta del proyecto:
      ```bash
      streamlit run app.py
      ```
    - Permite realizar la exploración de datos, la visualización de métricas, el entrenamiento y la predicción en tiempo real.
 
 6. **Despliegue con BentoML**
-   - Ejecutar:
+   - Ejecutar en la terminal, dentro del environment y del proyecto:
      ```bash
-     bentoml serve service:svc
+     bentoml serve service.py:svc --port 3000
      ```
    - La API se integra con Streamlit para realizar predicciones en tiempo real.
 
 ## Entorno y dependencias
 Para poder ejecutar los modelos 4 y 5 sera necesario realizar estos pasos:
 
-**Inatalación recomendada:** Python 3.10 (64-bit) para Windows 
+**Instalación recomendada:** Python 3.10 (64-bit) para Windows 
+
 **Crear entorno virtual fuera de la carpeta del proyecto:**
-Ajustar ruta al path con Python 3.10 instalado y ejecutar ```-m venv env_tep```
-Para activar el entorno ```env_tep\Scripts\activate```
-Comprobar versión ```python --version``` debe ser 3.10
-Una vez dentro de env_tep se debe instalar lo siguiente:
-```pip install numpy==1.26.4```
-```pip install pandas scikit-learn joblib```
-```pip install tensorflow==2.15.0```
-```pip install streamlit seaborn matplotlib```
+Ajustar ruta al path con Python 3.10 instalado y ejecutar ```-m venv env_tep``` para crear el entorno.
+
+Para activar el entorno, ejecutar ```env_tep\Scripts\activate```.
+
+Comprobar versión dentro del entorno ```python --version``` debe ser 3.10
+
+Una vez dentro de env_tep creado correctamente, existen dos opciones:
+
+1. Instalar las siguientes librerías:
+   ```pip install numpy==1.26.4```
+   ```pip install pandas scikit-learn joblib```
+   ```pip install tensorflow==2.15.0```
+   ```pip install streamlit seaborn matplotlib```
+
+2. Utilizar el requirements.txt para instalar las dependencias necesarias:
+   ```pip install -r requirements.txt```
