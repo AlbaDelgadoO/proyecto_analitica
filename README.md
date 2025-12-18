@@ -52,12 +52,11 @@ proyecto_analitica/
 │
 ├── app.py # Aplicación Streamlit
 ├── service.py # Servicio BentoML para inferencia
-├── train_model.py # Script auxiliar de entrenamiento
 ├── requirements.txt # librerías necesarias
 │
 ├── bentoml/ # BentoML
 │
-├── TEP_FaultFree_Training.RData
+├── TEP_FaultFree_Training.RData # Dataset originales
 ├── TEP_FaultFree_Testing.RData
 ├── TEP_Faulty_Training.RData
 ├── TEP_Faulty_Testing.RData
@@ -67,7 +66,7 @@ proyecto_analitica/
 ## Flujo de ejecución
 Este es el flujo de ejecución del trabajo completo. Se recomienda seguir el orden de ejecución de los archivos jupyter notebooks.
 
-Recomendamos crear e instalar las librerias que aparecen en el requirements.txt antes de realizar este proceso. 
+Recomendamos crear el environment e instalar las librerias que aparecen en el requirements.txt antes de realizar este proceso. 
 
 1. **Reducción del dataset**
    - Ejecutar `Reducir_Dataset.ipynb` para generar `DatasetReducido/`.
