@@ -61,15 +61,14 @@ df = load_data()
 
 # BARRA LATERAL (NAVEGACIÓN)
 st.sidebar.image("img/menu.png", width=50)
-page = st.sidebar.radio("Ir a:", ["Análisis Exploratorio (EDA)", "Modelado y Entrenamiento", "Predicción vía API BentoML"])
+page = st.sidebar.radio("Ir a:", ["Análisis Exploratorio (EDA)", "Ingeniería de Características", "Modelado y Entrenamiento", "Predicción vía API BentoML"])
 
 if df is None:
     st.error("No se encontraron los archivos CSV.")
     st.stop()
 
-# ==========================================
-# PÁGINA 1: ANÁLISIS EXPLORATORIO (EDA)
-# ==========================================
+
+# PÁGINA: ANÁLISIS EXPLORATORIO (EDA)
 if page == "Análisis Exploratorio (EDA)":
     st.image("img/data.png", width=100)
     st.title("Análisis Exploratorio de Datos")
@@ -248,18 +247,103 @@ if page == "Análisis Exploratorio (EDA)":
                 
                 st.pyplot(fig)
 
-# ==========================================
-# PÁGINA 2: MODELADO Y ENTRENAMIENTO
-# ==========================================
+
+
+
+
+# PÁGINA: INGENIERÍA DE CARACTERÍSTICAS
+elif page == "Ingeniería de Características":
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import os
+
+    st.image("img/data.png", width=100)
+    st.title("Ingeniería de Características")
+    st.markdown("""
+    Esta sección sirve para ver las transformaciones aplicadas en el notebook de Ingeniería de Características.
+    """)
+
+    # Cargar dataset procesado
+    try:
+        df_feat = pd.read_csv("DatasetProcesado/TEP_features_train.csv")
+    except Exception as e:
+        st.error(f"No se pudo cargar el dataset procesado: {e}")
+        st.stop()
+
+    st.subheader("Vista general del dataset procesado")
+    st.write(f"Shape: **{df_feat.shape[0]} filas × {df_feat.shape[1]} columnas**")
+    st.dataframe(df_feat.head(), use_container_width=True)
+    st.divider()
+
+    # Selección interactiva de simulación y variable
+    st.subheader("Comparación de transformaciones")
+    run = st.selectbox("Simulation Run", sorted(df_feat["simulationRun"].unique()))
+    var = st.selectbox("Variable a analizar", [c for c in df_feat.columns if c.startswith("xmeas_")])
+
+    df_run = df_feat[df_feat["simulationRun"] == run].sort_values("sample")
+
+    # Gráfico interactivo: Original vs Transformaciones temporales
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(df_run["sample"], df_run[var], label="Original", alpha=0.8)
+    
+    # Agregar medias móviles y std
+    for w in [5, 10]:
+        ma_col = f"{var}_ma{w}"
+        std_col = f"{var}_std{w}"
+        if ma_col in df_run.columns:
+            ax.plot(df_run["sample"], df_run[ma_col], label=f"MA {w}")
+        if std_col in df_run.columns:
+            ax.plot(df_run["sample"], df_run[std_col], label=f"STD {w}")
+
+    # Inicio del fallo
+    if df_run["fault_present"].max() == 1:
+        x0 = df_run[df_run["fault_present"] == 1]["sample"].min()
+        ax.axvline(x=x0, linestyle="--", color="red", label="Inicio fallo")
+
+    ax.set_title(f"Simulación {run} - Variable {var}")
+    ax.set_xlabel("Sample")
+    ax.legend()
+    st.pyplot(fig)
+    st.divider()
+
+    # Distribución de variable escalada
+    st.subheader("Distribución de variable escalada (Normal vs Fallo)")
+    var_scaled = f"{var}_scaled"
+    if var_scaled in df_feat.columns:
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        sns.kdeplot(df_feat[df_feat.fault_present == 0][var_scaled], fill=True, label="Normal", ax=ax2)
+        sns.kdeplot(df_feat[df_feat.fault_present == 1][var_scaled], fill=True, label="Fallo", ax=ax2)
+        ax2.set_title(f"Distribución de {var_scaled}")
+        ax2.legend()
+        st.pyplot(fig2)
+    else:
+        st.warning(f"No existe la feature escalada: {var_scaled}")
+    st.divider()
+
+    # Características más importantes 
+    st.subheader("Top 20 Features más importantes")
+
+    ranking_path = "modelos/feature_importance_ranking_model1.csv"
+    if os.path.exists(ranking_path):
+        ranking = pd.read_csv(ranking_path)
+        st.dataframe(ranking.head(20), use_container_width=True)
+    else:
+        st.info("No se encontró un ranking de importancia guardado.")
+
+
+
+
+# PÁGINA: MODELADO Y ENTRENAMIENTO
 elif page == "Modelado y Entrenamiento":
 
     st.image("img/entrenamiento.png", width=100)
     st.title("Laboratorio de Modelos ML")
     st.markdown("Entrena y evalúa modelos de clasificación usando selección por importancia.")
 
-    # ===============================
     # SELECCIÓN DE MODELO
-    # ===============================
     modelo_sel = st.selectbox(
         "Selecciona el modelo:",
         [
@@ -297,9 +381,7 @@ elif page == "Modelado y Entrenamiento":
     os.makedirs("Modelos", exist_ok=True)
 
     if not is_unsupervised:
-        # ===============================
         # CARGA DEL RANKING BASE
-        # ===============================
         df_cols = pd.read_csv(
             "DatasetProcesado/TEP_features_train.csv",
             nrows=1
@@ -312,9 +394,7 @@ elif page == "Modelado y Entrenamiento":
             st.error(f"No existe el ranking base: {ranking_base}")
             st.stop()
 
-        # ===============================
         # SLIDER TOP-N FEATURES
-        # ===============================
         n_features = st.slider(
             "Número de features a usar",
             min_value=5,
@@ -331,9 +411,7 @@ elif page == "Modelado y Entrenamiento":
         model_path   = f"{model_base}_top{n_features}.pkl"
         ranking_path = f"{ranking_base.replace('.csv', f'_top{n_features}.csv')}"
 
-        # ===============================
         # ENTRENAMIENTO
-        # ===============================
         if st.button("Entrenar modelo"):
 
             cols_to_load = top_features + [target_col]
@@ -369,9 +447,7 @@ elif page == "Modelado y Entrenamiento":
             with st.spinner("Entrenando modelo..."):
                 clf.fit(X_train, y_train)
 
-            # ===============================
             # GUARDADO
-            # ===============================
             ranking_top = pd.DataFrame({
                 "feature": top_features,
                 "importance": clf.feature_importances_
@@ -391,9 +467,7 @@ elif page == "Modelado y Entrenamiento":
             st.success(f"Modelo guardado: {model_path}")
             st.success(f"Ranking guardado: {ranking_path}")
 
-            # ===============================
             # EVALUACIÓN
-            # ===============================
             y_pred = clf.predict(X_test)
 
             st.subheader("Evaluación del Modelo")
@@ -586,9 +660,9 @@ elif page == "Predicción vía API BentoML":
 
     if st.button("Ejecutar Diagnóstico"):
         cols_to_drop = ["faultNumber", "fault_present", "simulationRun", "sample"]
-        # ======================================================
+        
         # SELECCIÓN CORRECTA DE FEATURES (CLAVE DEL PROBLEMA)
-        # ======================================================
+        
 
         # 1. Quitamos columnas no numéricas / labels
         df_api = fila_raw.drop(columns=[c for c in cols_to_drop if c in fila_raw.columns])
