@@ -1,17 +1,17 @@
+import os
 import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
+import requests
+import joblib
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-import requests
-import os
-import joblib
 from tensorflow.keras.models import load_model
 from sklearn.ensemble import IsolationForest
 
@@ -70,7 +70,7 @@ if df is None:
 
 # PÁGINA: ANÁLISIS EXPLORATORIO (EDA)
 if page == "Análisis Exploratorio (EDA)":
-    st.image("img/data.png", width=100)
+    st.image("img/analisis.png", width=100)
     st.title("Análisis Exploratorio de Datos")
     st.markdown("Exploración interactiva de los sensores y la distribución de fallos.")
 
@@ -365,20 +365,20 @@ elif page == "Modelado y Entrenamiento":
     if modelo_sel == "Clasificación Binaria (Fallo vs Normal)":
         target_col   = "fault_present"
         ranking_base = "modelos/feature_importance_ranking_model1.csv"
-        model_base   = "Modelos/model1_rf"
+        model_base   = "modelos/model1_rf"
         
     elif modelo_sel == "Predicción de Fallos Futuros (Horizonte)":
         target_col   = "fault_stage"
         ranking_base = "modelos/feature_importance_ranking_model2.csv"
-        model_base   = "Modelos/model2_rf"
+        model_base   = "modelos/model2_rf"
     
     else:  # MODELO 3
         target_col   = "faultNumber"
         ranking_base = "modelos/feature_importance_ranking_model3.csv"
-        model_base   = "Modelos/model3_rf"
+        model_base   = "modelos/model3_rf"
 
     os.makedirs("DatasetProcesado", exist_ok=True)
-    os.makedirs("Modelos", exist_ok=True)
+    os.makedirs("modelos", exist_ok=True)
 
     if not is_unsupervised:
         # CARGA DEL RANKING BASE
@@ -493,7 +493,7 @@ elif page == "Modelado y Entrenamiento":
 
         st.subheader("Detección de anomalías con Isolation Forest")
 
-        model_path = "Modelos/isolation_forest.pkl"
+        model_path = "modelos/isolation_forest.pkl"
 
         if not os.path.exists(model_path):
             st.error("No se encontró el modelo Isolation Forest entrenado.")
@@ -549,25 +549,24 @@ elif page == "Modelado y Entrenamiento":
 
         st.subheader("Detección de anomalías con Autoencoder")
 
-        model_path = "Modelos/autoencoder_model.keras"
-        meta_path  = "Modelos/autoencoder_metadata.pkl"
+        model_path = "modelos/autoencoder_model.pkl"
 
-        if not os.path.exists(model_path) or not os.path.exists(meta_path):
+        if not os.path.exists(model_path):
             st.error("No se encontraron los archivos del Autoencoder entrenado.")
             st.stop()
 
         # Cargar modelo y metadata
-        autoencoder = load_model(model_path)
-        metadata = joblib.load(meta_path)
+        artifact = joblib.load(model_path)
+        autoencoder = artifact["model"]
+        scaler      = artifact["scaler"]
+        threshold   = artifact["threshold"]
+        features    = artifact["features"]
 
-        scaler    = metadata["scaler"]
-        threshold = metadata["threshold"]
-        features  = metadata["features"]
 
         # Datos de test
         df_test = pd.read_csv("DatasetProcesado/TEP_features_test.csv")
 
-        X_test = df_test[features].values
+        X_test = df_test[features].fillna(0).values
         y_true = df_test["fault_present"].values
 
         X_test_scaled = scaler.transform(X_test)
